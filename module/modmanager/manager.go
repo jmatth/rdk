@@ -58,9 +58,9 @@ func NewManager(
 	restartCtx, restartCtxCancel := context.WithCancel(ctx)
 	ret := &Manager{
 		logger:                  logger.Sublogger("modmanager"),
-		modules:                 moduleMap{},
+		modules:                 syncMap[string, *module]{},
 		parentAddr:              parentAddr,
-		rMap:                    resourceModuleMap{},
+		rMap:                    syncMap[resource.Name, *module]{},
 		untrustedEnv:            options.UntrustedEnv,
 		viamHomeDir:             options.ViamHomeDir,
 		moduleDataParentDir:     getModuleDataParentDirectory(options),
@@ -80,48 +80,29 @@ type addedResource struct {
 	deps []string
 }
 
-// moduleMap is a typesafe wrapper for a sync.Map holding string keys and *module values.
-type moduleMap struct {
-	items sync.Map
+// syncMap provides a type safe wrapper around [sync.Map]
+type syncMap[K comparable, V any] sync.Map
+
+func (m *syncMap[K, V]) Store(key K, value V) {
+	(*sync.Map)(m).Store(key, value)
 }
 
-func (mmap *moduleMap) Store(name string, mod *module) { mmap.items.Store(name, mod) }
-func (mmap *moduleMap) Delete(name string)             { mmap.items.Delete(name) }
+func (m *syncMap[K, V]) Delete(key K) {
+	(*sync.Map)(m).Delete(key)
+}
 
-func (mmap *moduleMap) Load(name string) (*module, bool) {
-	value, ok := mmap.items.Load(name)
-	if value == nil {
-		return nil, ok
+func (m *syncMap[K, V]) Load(key K) (V, bool) {
+	v, ok := (*sync.Map)(m).Load(key)
+	if v == nil {
+		var zero V
+		return zero, ok
 	}
-	return value.(*module), ok
+	return v.(V), ok
 }
 
-func (mmap *moduleMap) Range(f func(name string, mod *module) bool) {
-	mmap.items.Range(func(key, value any) bool {
-		return f(key.(string), value.(*module))
-	})
-}
-
-// resourceModuleMap is a typesafe wrapper for a sync.Map holding resource.Name keys and
-// *module values.
-type resourceModuleMap struct {
-	items sync.Map
-}
-
-func (rmap *resourceModuleMap) Store(name resource.Name, mod *module) { rmap.items.Store(name, mod) }
-func (rmap *resourceModuleMap) Delete(name resource.Name)             { rmap.items.Delete(name) }
-
-func (rmap *resourceModuleMap) Load(name resource.Name) (*module, bool) {
-	value, ok := rmap.items.Load(name)
-	if value == nil {
-		return nil, ok
-	}
-	return value.(*module), ok
-}
-
-func (rmap *resourceModuleMap) Range(f func(name resource.Name, mod *module) bool) {
-	rmap.items.Range(func(key, value any) bool {
-		return f(key.(resource.Name), value.(*module))
+func (m *syncMap[K, V]) Range(yield func(K, V) bool) {
+	(*sync.Map)(m).Range(func(k, v any) bool {
+		return yield(k.(K), v.(V))
 	})
 }
 
@@ -136,9 +117,9 @@ type Manager struct {
 	mu sync.RWMutex
 
 	logger       logging.Logger
-	modules      moduleMap
+	modules      syncMap[string, *module]
 	parentAddr   string
-	rMap         resourceModuleMap
+	rMap         syncMap[resource.Name, *module]
 	untrustedEnv bool
 	// viamHomeDir is the absolute path to the viam home directory. Ex: /home/walle/.viam
 	// `viamHomeDir` may only be the empty string in testing
