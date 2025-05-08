@@ -71,19 +71,53 @@ func DiffConfigs(left, right Config, revealSensitiveConfigDiffs bool) (_ *Diff, 
 	// If left contains something right does and they are not equal => modified
 	// If left contains something right does and they are equal => no diff
 	// Note: generics would be nice here!
-	different := diffRemotes(left.Remotes, right.Remotes, &diff)
-	componentsDifferent := diffComponents(left.Components, right.Components, &diff)
+	// different := diffRemotes(left.Remotes, right.Remotes, &diff)
+	different := diffAll(
+		left.Remotes, right.Remotes,
+		func(r Remote) string { return r.Name },
+		&diff.Modified.Remotes, &diff.Added.Remotes, &diff.Removed.Remotes, nil,
+	)
+	var unmodifiedResources *[]resource.Config
+	if diff.Left.Revision != diff.Right.Revision {
+		unmodifiedResources = &diff.UnmodifiedResources
+	}
+	componentsDifferent := diffAll(
+		left.Components, right.Components,
+		func(c resource.Config) resource.Name { return c.ResourceName() },
+		&diff.Modified.Components, &diff.Added.Components, &diff.Removed.Components,
+		unmodifiedResources,
+	)
 	different = componentsDifferent || different
-	servicesDifferent := diffServices(left.Services, right.Services, &diff)
+	servicesDifferent := diffAll(
+		left.Services, right.Services,
+		func(c resource.Config) resource.Name { return c.ResourceName() },
+		&diff.Modified.Services, &diff.Added.Services, &diff.Removed.Services,
+		unmodifiedResources,
+	)
 
 	different = servicesDifferent || different
-	processesDifferent := diffProcesses(left.Processes, right.Processes, &diff) || different
+	processesDifferent := diffAll(
+		left.Processes, right.Processes,
+		func(p pexec.ProcessConfig) string { return p.ID },
+		&diff.Modified.Processes, &diff.Added.Processes, &diff.Removed.Processes,
+		nil,
+	) || different
 
 	different = processesDifferent || different
-	packagesDifferent := diffPackages(left.Packages, right.Packages, &diff) || different
+	packagesDifferent := diffAll(
+		left.Packages, right.Packages,
+		func(p PackageConfig) string { return p.Name },
+		&diff.Modified.Packages, &diff.Added.Packages, &diff.Removed.Packages,
+		nil,
+	) || different
 
 	different = packagesDifferent || different
-	different = diffModules(left.Modules, right.Modules, &diff) || different
+	different = diffAll(
+		left.Modules, right.Modules,
+		func(m Module) string { return m.Name },
+		&diff.Modified.Modules, &diff.Added.Modules, &diff.Removed.Modules,
+		nil,
+	) || different
 
 	diff.ResourcesEqual = !different
 
@@ -187,220 +221,54 @@ func (diff *Diff) String() string {
 	return diff.PrettyDiff
 }
 
-//nolint:dupl
-func diffRemotes(left, right []Remote, diff *Diff) bool {
-	leftIndex := make(map[string]int)
-	leftM := make(map[string]Remote)
+type equatable[T any] interface {
+	Equals(T) bool
+}
+
+func diffAll[T equatable[T], K comparable](left, right []T, getKey func(T) K, modified, added, removed, unmodified *[]T) bool {
+	leftIndex := make(map[K]int)
+	leftM := make(map[K]T)
 	for idx, l := range left {
-		leftM[l.Name] = l
-		leftIndex[l.Name] = idx
+		name := getKey(l)
+		leftM[name] = l
+		leftIndex[name] = idx
 	}
 
-	var removed []int
+	var removedIndexes []int
 
 	var different bool
 	for _, r := range right {
-		l, ok := leftM[r.Name]
-		delete(leftM, r.Name)
+		name := getKey(r)
+		l, ok := leftM[name]
+		delete(leftM, name)
 		if ok {
-			different = diffRemote(l, r, diff) || different
-			continue
-		}
-		diff.Added.Remotes = append(diff.Added.Remotes, r)
-		different = true
-	}
-
-	for k := range leftM {
-		removed = append(removed, leftIndex[k])
-		different = true
-	}
-	sort.Ints(removed)
-	for _, idx := range removed {
-		diff.Removed.Remotes = append(diff.Removed.Remotes, left[idx])
-	}
-	return different
-}
-
-func diffRemote(left, right Remote, diff *Diff) bool {
-	if left.Equals(right) {
-		return false
-	}
-	diff.Modified.Remotes = append(diff.Modified.Remotes, right)
-	return true
-}
-
-//nolint:dupl
-func diffComponents(left, right []resource.Config, diff *Diff) bool {
-	leftIndex := make(map[resource.Name]int)
-	leftM := make(map[resource.Name]resource.Config)
-	for idx, l := range left {
-		leftM[l.ResourceName()] = l
-		leftIndex[l.ResourceName()] = idx
-	}
-
-	var removed []int
-
-	var different bool
-	for _, r := range right {
-		l, ok := leftM[r.ResourceName()]
-		delete(leftM, r.ResourceName())
-		if ok {
-			componentDifferent := diffComponent(l, r, diff)
-			different = componentDifferent || different
-			if !componentDifferent && diff.Left.Revision != diff.Right.Revision {
-				diff.UnmodifiedResources = append(diff.UnmodifiedResources, r)
+			currDifferent := diffSingle(l, r, modified)
+			different = currDifferent || different
+			if !currDifferent && unmodified != nil {
+				*unmodified = append(*unmodified, r)
 			}
 			continue
 		}
-		diff.Added.Components = append(diff.Added.Components, r)
+		*added = append(*added, r)
 		different = true
 	}
 
 	for k := range leftM {
-		removed = append(removed, leftIndex[k])
+		removedIndexes = append(removedIndexes, leftIndex[k])
 		different = true
 	}
-	sort.Ints(removed)
-	for _, idx := range removed {
-		diff.Removed.Components = append(diff.Removed.Components, left[idx])
+	sort.Ints(removedIndexes)
+	for _, idx := range removedIndexes {
+		*removed = append(*removed, left[idx])
 	}
 	return different
 }
 
-func diffComponent(left, right resource.Config, diff *Diff) bool {
+func diffSingle[T equatable[T]](left, right T, modified *[]T) bool {
 	if left.Equals(right) {
 		return false
 	}
-	diff.Modified.Components = append(diff.Modified.Components, right)
-	return true
-}
-
-func diffProcesses(left, right []pexec.ProcessConfig, diff *Diff) bool {
-	leftIndex := make(map[string]int)
-	leftM := make(map[string]pexec.ProcessConfig)
-	for idx, l := range left {
-		leftM[l.ID] = l
-		leftIndex[l.ID] = idx
-	}
-
-	var removed []int
-
-	var different bool
-	for _, r := range right {
-		l, ok := leftM[r.ID]
-		delete(leftM, r.ID)
-		if ok {
-			different = diffProcess(l, r, diff) || different
-			continue
-		}
-		diff.Added.Processes = append(diff.Added.Processes, r)
-		different = true
-	}
-
-	for k := range leftM {
-		removed = append(removed, leftIndex[k])
-		different = true
-	}
-	sort.Ints(removed)
-	for _, idx := range removed {
-		diff.Removed.Processes = append(diff.Removed.Processes, left[idx])
-	}
-	return different
-}
-
-func diffProcess(left, right pexec.ProcessConfig, diff *Diff) bool {
-	if left.Equals(right) {
-		return false
-	}
-	diff.Modified.Processes = append(diff.Modified.Processes, right)
-	return true
-}
-
-//nolint:dupl
-func diffPackages(left, right []PackageConfig, diff *Diff) bool {
-	leftIndex := make(map[string]int)
-	leftM := make(map[string]PackageConfig)
-	for idx, l := range left {
-		leftM[l.Name] = l
-		leftIndex[l.Name] = idx
-	}
-
-	var removed []int
-
-	var different bool
-	for _, r := range right {
-		l, ok := leftM[r.Name]
-		delete(leftM, r.Name)
-		if ok {
-			different = diffPackage(l, r, diff) || different
-			continue
-		}
-		diff.Added.Packages = append(diff.Added.Packages, r)
-		different = true
-	}
-
-	for k := range leftM {
-		removed = append(removed, leftIndex[k])
-		different = true
-	}
-	sort.Ints(removed)
-	for _, idx := range removed {
-		diff.Removed.Packages = append(diff.Removed.Packages, left[idx])
-	}
-	return different
-}
-
-func diffPackage(left, right PackageConfig, diff *Diff) bool {
-	if left.Equals(right) {
-		return false
-	}
-	diff.Modified.Packages = append(diff.Modified.Packages, right)
-	return true
-}
-
-//nolint:dupl
-func diffServices(left, right []resource.Config, diff *Diff) bool {
-	leftIndex := make(map[resource.Name]int)
-	leftM := make(map[resource.Name]resource.Config)
-	for idx, l := range left {
-		leftM[l.ResourceName()] = l
-		leftIndex[l.ResourceName()] = idx
-	}
-
-	var removed []int
-
-	var different bool
-	for _, r := range right {
-		l, ok := leftM[r.ResourceName()]
-		delete(leftM, r.ResourceName())
-		if ok {
-			serviceDifferent := diffService(l, r, diff)
-			different = serviceDifferent || different
-			if !serviceDifferent && diff.Left.Revision != diff.Right.Revision {
-				diff.UnmodifiedResources = append(diff.UnmodifiedResources, r)
-			}
-			continue
-		}
-		diff.Added.Services = append(diff.Added.Services, r)
-		different = true
-	}
-
-	for k := range leftM {
-		removed = append(removed, leftIndex[k])
-		different = true
-	}
-	sort.Ints(removed)
-	for _, idx := range removed {
-		diff.Removed.Services = append(diff.Removed.Services, left[idx])
-	}
-	return different
-}
-
-func diffService(left, right resource.Config, diff *Diff) bool {
-	if left.Equals(right) {
-		return false
-	}
-	diff.Modified.Services = append(diff.Modified.Services, right)
+	*modified = append(*modified, right)
 	return true
 }
 
@@ -474,48 +342,6 @@ func diffTLS(leftTLS, rightTLS *tls.Config) bool {
 		return true
 	}
 	return false
-}
-
-//nolint:dupl
-func diffModules(leftModules, rightModules []Module, diff *Diff) bool {
-	leftIndex := make(map[string]int)
-	leftM := make(map[string]Module)
-	for idx, l := range leftModules {
-		leftM[l.Name] = l
-		leftIndex[l.Name] = idx
-	}
-
-	var removed []int
-
-	var different bool
-	for _, r := range rightModules {
-		l, ok := leftM[r.Name]
-		delete(leftM, r.Name)
-		if ok {
-			different = diffModule(l, r, diff) || different
-			continue
-		}
-		diff.Added.Modules = append(diff.Added.Modules, r)
-		different = true
-	}
-
-	for k := range leftM {
-		removed = append(removed, leftIndex[k])
-		different = true
-	}
-	sort.Ints(removed)
-	for _, idx := range removed {
-		diff.Removed.Modules = append(diff.Removed.Modules, leftModules[idx])
-	}
-	return different
-}
-
-func diffModule(left, right Module, diff *Diff) bool {
-	if left.Equals(right) {
-		return false
-	}
-	diff.Modified.Modules = append(diff.Modified.Modules, right)
-	return true
 }
 
 // diffLogCfg returns true if any part of the log config is different or if any
