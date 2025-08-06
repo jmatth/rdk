@@ -66,6 +66,7 @@ require (
 	github.com/prometheus/procfs v0.15.1
 	github.com/rhysd/actionlint v1.6.24
 	github.com/rs/cors v1.11.1
+	github.com/samber/lo v1.51.0
 	github.com/sergi/go-diff v1.3.1
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/spf13/cast v1.5.0
@@ -81,7 +82,7 @@ require (
 	go.uber.org/atomic v1.11.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0
-	go.viam.com/api v0.1.455
+	go.viam.com/api v0.1.460
 	go.viam.com/test v1.2.4
 	go.viam.com/utils v0.1.154
 	goji.io v2.0.2+incompatible
@@ -359,7 +360,6 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/ryancurrah/gomodguard v1.3.5 // indirect
 	github.com/ryanrolds/sqlclosecheck v0.5.1 // indirect
-	github.com/samber/lo v1.51.0 // indirect
 	github.com/sanposhiho/wastedassign/v2 v2.0.7 // indirect
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	github.com/sashamelentyev/interfacebloat v1.1.0 // indirect

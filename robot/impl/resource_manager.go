@@ -149,7 +149,7 @@ func (manager *resourceManager) addRemote(
 	} else {
 		gNode.SwapResource(rr, builtinModel, manager.opts.ftdc)
 	}
-	manager.updateRemoteResourceNames(ctx, rName, rr, true)
+	manager.updateRemoteResourceNames(ctx, rName, rr, c.Prefix, true)
 }
 
 func (manager *resourceManager) remoteResourceNames(remoteName resource.Name) []resource.Name {
@@ -189,6 +189,7 @@ func (manager *resourceManager) updateRemoteResourceNames(
 	ctx context.Context,
 	remoteName resource.Name,
 	rr internalRemoteRobot,
+	prefix string,
 	recreateAllClients bool,
 ) bool {
 	logger := manager.logger.WithFields("remote", remoteName)
@@ -239,6 +240,9 @@ func (manager *resourceManager) updateRemoteResourceNames(
 		}
 		resName = resName.PrependRemote(remoteName.Name)
 		gNode, nodeAlreadyExists := manager.resources.Node(resName)
+		if nodeAlreadyExists && gNode.GetPrefix() != prefix {
+			gNode.SetPrefix(prefix)
+		}
 		if _, alreadyCurrent := activeResourceNames[resName]; alreadyCurrent {
 			activeResourceNames[resName] = true
 			if nodeAlreadyExists && !gNode.IsUninitialized() {
@@ -269,6 +273,7 @@ func (manager *resourceManager) updateRemoteResourceNames(
 			gNode.SwapResource(res, unknownModel, manager.opts.ftdc)
 		} else {
 			gNode = resource.NewConfiguredGraphNode(resource.Config{}, res, unknownModel)
+			gNode.SetPrefix(prefix)
 			if err := manager.resources.AddNode(resName, gNode); err != nil {
 				resLogger.CErrorw(ctx, "failed to add remote resource node", "error", err)
 			}
@@ -325,7 +330,14 @@ func (manager *resourceManager) updateRemotesResourceNames(ctx context.Context) 
 			if err == nil {
 				if rr, ok := res.(internalRemoteRobot); ok {
 					// updateRemoteResourceNames must be first, otherwise there's a chance it will not be evaluated
-					anythingChanged = manager.updateRemoteResourceNames(ctx, name, rr, false) || anythingChanged
+					remoteConfig := gNode.Config().ConvertedAttributes.(*config.Remote)
+					anythingChanged = manager.updateRemoteResourceNames(
+						ctx,
+						name,
+						rr,
+						remoteConfig.Prefix,
+						false,
+					) || anythingChanged
 				}
 			}
 		}
