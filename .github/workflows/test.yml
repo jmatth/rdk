@@ -100,6 +100,9 @@ jobs:
     - uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
+    - name: install additional tools
+      run:
+        winget install --disable-interactivity --silent --source winget --exact ezwinports.make
     - name: test
       env:
         GOFLAGS: "-tags=no_cgo"
