@@ -19,46 +19,36 @@ import (
 )
 
 const osDarwin = "darwin"
+const osWindows = "windows"
 
 // BuildViamServer will attempt to build the viam-server (server-static if on linux). If successful, this function will
 // return the path to the executable.
 func BuildViamServer(tb testing.TB) string {
 	tb.Helper()
 
-	buildOutputPath := tb.TempDir()
-	serverPath := filepath.Join(buildOutputPath, "viam-server")
-
-	var builder *exec.Cmd
-
-	if runtime.GOOS != "windows" {
-		command := "server-static"
-		if runtime.GOOS == osDarwin {
-			command = "server"
-		}
-		builder = exec.Command("make", command)
-		builder.Env = append(os.Environ(), "TESTBUILD_OUTPUT_PATH="+buildOutputPath)
-	} else {
-		// we don't have access to make on Windows, so copy the build command from the Makefile.
-		serverPath += ".exe"
-		//nolint:gosec
-		builder = exec.Command(
-			"go", "build", "-tags", "no_cgo,osusergo,netgo",
-			"-ldflags=-extldflags=-static -s -w",
-			"-o", serverPath,
-			"./web/cmd/server",
-		)
+	command := "server-static"
+	if runtime.GOOS == osDarwin {
+		command = "server"
 	}
-	// set Dir to root of repo
+	if runtime.GOOS == osWindows {
+		command = "windows"
+	}
+
+	builder := exec.Command("make", command)
 	builder.Dir = utils.ResolveFile(".")
+	buildOutputPath := tb.TempDir()
+	builder.Env = append(os.Environ(), "TESTBUILD_OUTPUT_PATH="+buildOutputPath)
 	out, err := builder.Output()
-	if len(out) > 0 {
-		tb.Logf("Build Output: %s", out)
-	}
+	tb.Logf("Build Output: %s", out)
 	if err != nil {
 		tb.Error(err)
 	}
 	if tb.Failed() {
 		tb.Fatal("failed to build viam-server executable")
+	}
+	serverPath := filepath.Join(buildOutputPath, "viam-server")
+	if runtime.GOOS == osWindows {
+		serverPath += ".exe"
 	}
 	return serverPath
 }
@@ -70,9 +60,6 @@ func BuildTempModule(tb testing.TB, modDir string) string {
 	tb.Helper()
 
 	exePath := filepath.Join(tb.TempDir(), filepath.Base(modDir))
-	if runtime.GOOS == "windows" {
-		exePath += ".exe"
-	}
 	//nolint:gosec
 	builder := exec.Command("go", "build", "-o", exePath, ".")
 	builder.Dir = utils.ResolveFile(modDir)
