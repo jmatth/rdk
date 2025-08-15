@@ -6,6 +6,7 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -141,28 +142,23 @@ type nameNode struct {
 	Node *GraphNode
 }
 
-func getRemoteNames(nodes graphNodes) []string {
+func getRemoteNames(nodes resourcesMap) []string {
 	uniqueRemotes := make(map[string]bool)
-	//nolint
-	for name, _ := range nodes {
+	
+	for name := range nodes.Keys() {
 		if name.Remote != "" {
 			uniqueRemotes[name.Remote] = true
 		}
 	}
 
-	var ret []string
-	//nolint
-	for remote, _ := range uniqueRemotes {
-		ret = append(ret, remote)
-	}
-
+	ret := slices.Collect(maps.Keys(uniqueRemotes))
 	slices.Sort(ret)
 	return ret
 }
 
-func nodesSortedByName(nodes graphNodes) []nameNode {
+func nodesSortedByName(nodes resourcesMap) []nameNode {
 	var ret []nameNode
-	for name, node := range nodes {
+	for name, node := range nodes.All() {
 		ret = append(ret, nameNode{name, node})
 	}
 	slices.SortFunc(ret, func(left, right nameNode) int {

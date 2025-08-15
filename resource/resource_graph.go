@@ -7,11 +7,11 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
 	"go.uber.org/multierr"
 
 	"go.viam.com/rdk/ftdc"
 	"go.viam.com/rdk/logging"
+	"go.viam.com/rdk/utils/rtrie"
 )
 
 // NodeNotFoundError is returned when the name and API combination are not found after
@@ -46,7 +46,7 @@ type transitiveClosureMatrix map[Name]map[Name]int
 // Graph The Graph maintains a collection of resources and their dependencies between each other.
 type Graph struct {
 	mu                      sync.Mutex
-	nodes                   graphNodes // list of nodes
+	nodes                   resourcesMap
 	children                resourceDependencies
 	parents                 resourceDependencies
 	transitiveClosureMatrix transitiveClosureMatrix
@@ -61,9 +61,11 @@ type Graph struct {
 // NewGraph creates a new resource graph.
 func NewGraph(logger logging.Logger) *Graph {
 	return &Graph{
-		children:                resourceDependencies{},
-		parents:                 resourceDependencies{},
-		nodes:                   graphNodes{},
+		children: resourceDependencies{},
+		parents:  resourceDependencies{},
+		nodes: resourcesMap{
+			trie: rtrie.NewTrie[byAPIBucket](),
+		},
 		transitiveClosureMatrix: transitiveClosureMatrix{},
 		logicalClock:            &atomic.Int64{},
 		logger:                  logger,
@@ -138,7 +140,7 @@ func removeNodeFromNodeMap(dm resourceDependencies, key, node Name) {
 func (g *Graph) leaves() []Name {
 	leaves := make([]Name, 0)
 
-	for node := range g.nodes {
+	for node := range g.nodes.Keys() {
 		if _, ok := g.children[node]; !ok {
 			leaves = append(leaves, node)
 		}
@@ -157,7 +159,7 @@ func (g *Graph) Clone() *Graph {
 func (g *Graph) clone() *Graph {
 	return &Graph{
 		children:                copyNodeMap(g.children),
-		nodes:                   copyNodes(g.nodes),
+		nodes:                   g.nodes.Copy(),
 		parents:                 copyNodeMap(g.parents),
 		transitiveClosureMatrix: copyTransitiveClosureMatrix(g.transitiveClosureMatrix),
 		logicalClock:            g.logicalClock,
@@ -202,7 +204,7 @@ func (g *Graph) AddNode(node Name, nodeVal *GraphNode) error {
 func (g *Graph) Node(name Name) (*GraphNode, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	rNode, ok := g.nodes[name]
+	rNode, ok := g.nodes.GetByName(name)
 	return rNode, ok
 }
 
@@ -220,50 +222,70 @@ func catStringsMatch(left, rightA, rightB string) bool {
 func (g *Graph) FindBySimpleNameAndAPI(name string, api API) (*GraphNode, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	type gTuple struct {
-		name Name
-		node *GraphNode
-	}
-	matches := []gTuple{}
-	for gName, gNode := range g.nodes {
-		// TODO: search for names + nodes that would have matched w/o the prefix
-		// and include them in the error to help users.
-		if gName.API == api && catStringsMatch(name, gNode.prefix, gName.Name) {
-			matches = append(matches, gTuple{gName, gNode})
-		}
-	}
-	switch len(matches) {
-	case 0:
-		return nil, &NodeNotFoundError{
-			Name: name,
-			API:  api,
-		}
-	case 1:
-		return matches[0].node, nil
-	default:
-		localMatches := lo.Filter(matches, func(l gTuple, _ int) bool {
-			return l.name.Remote == ""
-		})
-		if len(localMatches) == 1 {
-			return localMatches[0].node, nil
-		}
-		return nil, &MultipleMatchingRemoteNodesError{
-			Name: name,
-			API:  api,
-			Names: lo.Map(matches, func(l gTuple, _ int) Name {
-				return l.name
-			}),
-		}
-	}
+	panic("TODO")
+	// type gTuple struct {
+	// 	name Name
+	// 	node *GraphNode
+	// }
+
+	// potentialMatchesForName := g.nnodes.FindSuffix(name)
+	// potentialMatchesForNameAndAPI := lo.FilterMap(potentialMatchesForName, func(val apiBucket, _ int) (graphBucket, bool) {
+	// 	result, ok := val[api]
+	// 	return result, ok
+	// })
+
+	// if len(potentialMatchesForName) < 1 {
+	// 	return nil, &NodeNotFoundError{name, api}
+	// }
+
+	// mostSpecificMatch := potentialMatchesForNameAndAPI[len(potentialMatchesForNameAndAPI)-1]
+	// if mostSpecificMatch.local.name
+	// if local :=  local != nil {
+	// 	return local, nil
+	// }
+
+	// // realMatches is the list of GraphNodes that match the `name` argument after
+	// // applying the remote's prefix.
+	// realMatches := lo.Reduce(potentialMatchesForNameAndAPI, func(acc []*GraphNode, bucket graphBucket, _ int) []*GraphNode {
+	// 	var results []*GraphNode
+	// 	for gName, gNode := range bucket.remote {
+	// 		if gName.API == api && catStringsMatch(name, gNode.prefix, gName.Name) {
+	// 			results = append(results, gNode)
+	// 		}
+	// 	}
+	// 	return results
+	// }, nil)
+
+	// if len(realMatches) == 1 {
+	// 	return realMatches[0], nil
+	// }
+
+	// switch len(realMatches) {
+	// case 1:
+	// 	return realMatches[0], nil
+	// case 0:
+	// 	return nil, &NodeNotFoundError{
+	// 		Name: name,
+	// 		API:  api,
+	// 	}
+	// default:
+	// 	return nil, &MultipleMatchingRemoteNodesError{
+	// 		Name: name,
+	// 		API:  api,
+	// 		Names: lo.Map(realMatches, func(n *GraphNode, _ int) Name {
+	// 			return n.current.Name()
+	// 		}),
+	// 	}
+	// }
 }
 
 // Names returns the all resource graph names.
 func (g *Graph) Names() []Name {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	names := make([]Name, len(g.nodes))
+	names := []Name{}
 	i := 0
-	for k := range g.nodes {
+	for k := range g.nodes.Keys() {
 		names[i] = k
 		i++
 	}
@@ -274,9 +296,9 @@ func (g *Graph) Names() []Name {
 func (g *Graph) ReachableNames() []Name {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	names := make([]Name, len(g.nodes))
+	names := []Name{}
 	i := 0
-	for k, node := range g.nodes {
+	for k, node := range g.nodes.All() {
 		if node.unreachable {
 			continue
 		}
@@ -291,7 +313,7 @@ func (g *Graph) FindNodesByShortNameAndAPI(name Name) []Name {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	var ret []Name
-	for k, v := range g.nodes {
+	for k, v := range g.nodes.All() {
 		if name.Name == k.Name && name.API == k.API && v != nil {
 			ret = append(ret, k)
 		}
@@ -304,7 +326,7 @@ func (g *Graph) FindNodesByAPI(api API) []Name {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	var ret []Name
-	for k := range g.nodes {
+	for k := range g.nodes.Keys() {
 		if k.API == api {
 			ret = append(ret, k)
 		}
@@ -316,7 +338,7 @@ func (g *Graph) FindNodesByAPI(api API) []Name {
 func (g *Graph) FindNodesByShortName(name string) []Name {
 	hasRemote := strings.Contains(name, ":")
 	var matches []Name
-	for nodeName := range g.nodes {
+	for nodeName := range g.nodes.Keys() {
 		if !(nodeName.API.IsComponent() || nodeName.API.IsService()) {
 			continue
 		}
@@ -356,7 +378,7 @@ func (g *Graph) addNode(node Name, nodeVal *GraphNode) error {
 		g.logger.Errorw("addNode called with a nil value; setting to uninitialized", "name", node)
 		nodeVal = NewUninitializedNode()
 	}
-	if val, ok := g.nodes[node]; ok {
+	if val, ok := g.nodes.GetByName(node); ok {
 		if !val.IsUninitialized() {
 			return errors.Errorf("initialized node already exists with name %q; must swap instead", node)
 		}
@@ -366,12 +388,12 @@ func (g *Graph) addNode(node Name, nodeVal *GraphNode) error {
 	if g.ftdc != nil {
 		g.ftdc.Add(node.String(), nodeVal)
 	}
-	g.nodes[node] = nodeVal
+	g.nodes.PutByName(node, nodeVal)
 
 	if _, ok := g.transitiveClosureMatrix[node]; !ok {
 		g.transitiveClosureMatrix[node] = map[Name]int{}
 	}
-	for n := range g.nodes {
+	for n := range g.nodes.All() {
 		for v := range g.transitiveClosureMatrix {
 			if _, ok := g.transitiveClosureMatrix[n][v]; !ok {
 				g.transitiveClosureMatrix[n][v] = 0
@@ -401,7 +423,7 @@ func (g *Graph) addChild(child, parent Name) error {
 		return errors.Errorf("%q cannot depend on itself", child.Name)
 	}
 	// Maybe we haven't encountered yet the parent so let's add it here and assign an uninitialized node
-	if _, ok := g.nodes[parent]; !ok {
+	if _, ok := g.nodes.GetByName(parent); !ok {
 		if err := g.addNode(parent, NewUninitializedNode()); err != nil {
 			return err
 		}
@@ -461,7 +483,7 @@ func (g *Graph) remove(node Name) {
 	delete(g.transitiveClosureMatrix, node)
 	delete(g.parents, node)
 	delete(g.children, node)
-	delete(g.nodes, node)
+	g.nodes.DeleteByName(node)
 	if g.ftdc != nil {
 		g.ftdc.Remove(node.String())
 	}
@@ -475,7 +497,7 @@ func (g *Graph) MarkForRemoval(toMark *Graph) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	for _, v := range toMark.nodes {
+	for v := range toMark.nodes.Values() {
 		v.MarkForRemoval()
 	}
 }
@@ -493,7 +515,7 @@ func (g *Graph) RemoveMarked() []Resource {
 
 	var toClose []Resource
 	for _, name := range sorted {
-		rNode, ok := g.nodes[name]
+		rNode, ok := g.nodes.GetByName(name)
 		if !ok {
 			// will never happen
 			g.logger.Errorw("invariant: expected to find node during removal", "name", name)
@@ -515,10 +537,11 @@ func (g *Graph) MergeAdd(toAdd *Graph) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	for _, node := range sorted {
-		if i, ok := g.nodes[node]; ok && i != nil {
+		if i, ok := g.nodes.GetByName(node); ok && i != nil {
 			g.remove(node)
 		}
-		if err := g.addNode(node, toAdd.nodes[node]); err != nil {
+		toAddNode, _ := toAdd.nodes.GetByName(node)
+		if err := g.addNode(node, toAddNode); err != nil {
 			return err
 		}
 
@@ -538,7 +561,7 @@ func (g *Graph) ReplaceNodesParents(node Name, other *Graph) error {
 	defer other.mu.Unlock()
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if _, ok := g.nodes[node]; !ok {
+	if _, ok := g.nodes.GetByName(node); !ok {
 		return errors.Errorf("cannot copy parents to non existing node %q", node.Name)
 	}
 
@@ -568,13 +591,13 @@ func (g *Graph) CopyNodeAndChildren(node Name, origin *Graph) error {
 	defer origin.mu.Unlock()
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if r, ok := origin.nodes[node]; ok {
+	if r, ok := origin.nodes.GetByName(node); ok {
 		if err := g.addNode(node, r); err != nil {
 			return err
 		}
 		children := origin.getAllChildrenOf(node)
 		for _, childName := range children {
-			if _, ok := g.nodes[childName]; !ok {
+			if _, ok := g.nodes.GetByName(childName); !ok {
 				if err := g.addNode(childName, NewUninitializedNode()); err != nil {
 					return err
 				}
@@ -649,7 +672,7 @@ func (g *Graph) ResolveDependencies(logger logging.Logger) error {
 	defer g.mu.Unlock()
 
 	var allErrs error
-	for nodeName, node := range g.nodes {
+	for nodeName, node := range g.nodes.All() {
 		unresolvedDeps := node.UnresolvedDependencies()
 
 		if !node.hasUnresolvedDependencies() {
@@ -724,10 +747,10 @@ func (g *Graph) ResolveDependencies(logger logging.Logger) error {
 }
 
 func (g *Graph) isNodeDependingOn(node, child Name) bool {
-	if _, ok := g.nodes[node]; !ok {
+	if _, ok := g.nodes.GetByName(node); !ok {
 		return false
 	}
-	if _, ok := g.nodes[child]; !ok {
+	if _, ok := g.nodes.GetByName(child); !ok {
 		return false
 	}
 	return g.transitiveClosureMatrix[child][node] != 0
@@ -744,7 +767,7 @@ func (g *Graph) SubGraphFrom(node Name) (*Graph, error) {
 // subGraphFrom returns a Sub-Graph containing all linked dependencies starting with node [Name].
 // This method is NOT threadsafe: A client must hold [Graph.mu] while calling this method.
 func (g *Graph) subGraphFromWithMutex(node Name) (*Graph, error) {
-	if _, ok := g.nodes[node]; !ok {
+	if _, ok := g.nodes.GetByName(node); !ok {
 		return nil, errors.Errorf("cannot create sub-graph from non existing node %q ", node.Name)
 	}
 	subGraph := g.clone()
@@ -766,7 +789,7 @@ func (g *Graph) MarkReachability(node Name, reachable bool) error {
 	if err != nil {
 		return err
 	}
-	for _, node := range subGraph.nodes {
+	for node := range subGraph.nodes.Values() {
 		node.markReachability(reachable)
 	}
 	return nil
@@ -778,7 +801,7 @@ func (g *Graph) Status() []NodeStatus {
 	defer g.mu.Unlock()
 
 	var result []NodeStatus
-	for name, node := range g.nodes {
+	for name, node := range g.nodes.All() {
 		// TODO (RSDK-9550): Node should have the correct notion of its name
 		// but they don't, so fill it in here
 		status := node.Status()

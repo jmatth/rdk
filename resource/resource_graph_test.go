@@ -1,7 +1,6 @@
 package resource
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -56,11 +55,13 @@ var commonCfg = []fakeComponent{
 }
 
 func TestResourceGraphConstruct(t *testing.T) {
-	for idx, c := range []struct {
+	for _, c := range []struct {
+		title string
 		conf []fakeComponent
 		err  string
 	}{
 		{
+			"no error",
 			[]fakeComponent{
 				{
 					Name:      NewName(apiA, "A"),
@@ -94,6 +95,7 @@ func TestResourceGraphConstruct(t *testing.T) {
 			"",
 		},
 		{
+			"circular dependencies",
 			[]fakeComponent{
 				{
 					Name:      NewName(apiA, "A"),
@@ -107,6 +109,7 @@ func TestResourceGraphConstruct(t *testing.T) {
 			"circular dependency - \"A\" already depends on \"B\"",
 		},
 		{
+			"self dependency",
 			[]fakeComponent{
 				{
 					Name:      NewName(apiA, "A"),
@@ -120,7 +123,7 @@ func TestResourceGraphConstruct(t *testing.T) {
 			"\"B\" cannot depend on itself",
 		},
 	} {
-		t.Run(fmt.Sprintf("%d", idx), func(t *testing.T) {
+		t.Run(c.title, func(t *testing.T) {
 			logger := logging.NewTestLogger(t)
 			g := NewGraph(logger)
 			test.That(t, g, test.ShouldNotBeNil)
@@ -129,6 +132,7 @@ func TestResourceGraphConstruct(t *testing.T) {
 				for _, dep := range component.DependsOn {
 					err := g.AddChild(component.Name, dep)
 					if i > 0 && c.err != "" {
+						test.That(t, err, test.ShouldNotBeNil)
 						test.That(t, err.Error(), test.ShouldContainSubstring, c.err)
 					} else {
 						test.That(t, err, test.ShouldBeNil)
@@ -801,7 +805,7 @@ func TestResourceGraphReplaceNodesParents(t *testing.T) {
 			test.That(t, gB.AddChild(component.Name, dep), test.ShouldBeNil)
 		}
 	}
-	for n := range gB.nodes {
+	for n := range gB.nodes.Keys() {
 		test.That(t, gA.ReplaceNodesParents(n, gB), test.ShouldBeNil)
 	}
 	out = gA.TopologicalSort()
@@ -876,7 +880,7 @@ func TestResourceGraphCopyNodeAndChildren(t *testing.T) {
 		NewName(apiA, "D"),
 	}...))
 
-	for n := range gA.nodes {
+	for n := range gA.nodes.Keys() {
 		test.That(t, gB.CopyNodeAndChildren(n, gA), test.ShouldBeNil)
 	}
 	out = gB.TopologicalSort()
