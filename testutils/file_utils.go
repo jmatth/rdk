@@ -19,6 +19,7 @@ import (
 )
 
 const osDarwin = "darwin"
+const osWindows = "windows"
 
 // BuildViamServer will attempt to build the viam-server (server-static if on linux). If successful, this function will
 // return the path to the executable.
@@ -28,6 +29,9 @@ func BuildViamServer(tb testing.TB) string {
 	command := "server-static"
 	if runtime.GOOS == osDarwin {
 		command = "server"
+	}
+	if runtime.GOOS == osWindows {
+		command = "windows"
 	}
 
 	builder := exec.Command("make", command)
@@ -43,6 +47,9 @@ func BuildViamServer(tb testing.TB) string {
 		tb.Fatal("failed to build viam-server executable")
 	}
 	serverPath := filepath.Join(buildOutputPath, "viam-server")
+	if runtime.GOOS == osWindows {
+		serverPath += ".exe"
+	}
 	return serverPath
 }
 
