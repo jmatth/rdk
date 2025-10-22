@@ -24,4 +24,6 @@ func (svc *webService) initStreamServer(_ context.Context, _ rpc.Server) error {
 }
 
 // stub for missing gostream
-type options struct{}
+type options struct{
+	baseOptions
+}

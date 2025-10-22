@@ -1,4 +1,4 @@
-// Package web provides gRPC/REST/GUI APIs to control and monitor a robot.
+// Package web provides gRPC/REST/GUI APIs to contcerol and monitor a robot.
 package web
 
 import (
@@ -22,7 +22,9 @@ import (
 	"github.com/jhump/protoreflect/dynamic"
 	"github.com/pkg/errors"
 	"github.com/rs/cors"
-	"go.opencensus.io/trace"
+	octrace "go.opencensus.io/trace"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/multierr"
 	pb "go.viam.com/api/robot/v1"
 	"go.viam.com/utils"
@@ -121,6 +123,7 @@ type webService struct {
 
 	requestCounter     RequestCounter
 	modPeerConnTracker *grpc.ModPeerConnTracker
+	tracer             trace.Tracer
 }
 
 // New returns a new web service for the given robot.
@@ -138,6 +141,7 @@ func New(r robot.LocalRobot, logger logging.Logger, opts ...Option) Service {
 		modPeerConnTracker: grpc.NewModPeerConnTracker(),
 		opts:               wOpts,
 		requestCounter:     RequestCounter{logger: logger},
+		tracer:             wOpts.tracer,
 	}
 	webSvc.requestCounter.ensureLimit()
 	return webSvc
@@ -586,9 +590,24 @@ func (svc *webService) initRPCOptions(listenerTCPAddr *net.TCPAddr, options webo
 			info *googlegrpc.UnaryServerInfo,
 			handler googlegrpc.UnaryHandler,
 		) (interface{}, error) {
-			ctx, span := trace.StartSpan(ctx, fmt.Sprintf("%v", req))
+			ctx, span := octrace.StartSpan(ctx, fmt.Sprintf("%v", req))
 			defer span.End()
 
+			return handler(ctx, req)
+		})
+	}
+
+	if svc.tracer != nil {
+		unaryInterceptors = append(unaryInterceptors, func(
+			ctx context.Context,
+			req interface{},
+			info *googlegrpc.UnaryServerInfo,
+			handler googlegrpc.UnaryHandler,
+		) (interface{}, error) {
+			ctx, span := svc.tracer.Start(ctx, "grpcUnaryCall", trace.WithAttributes(
+				attribute.KeyValue{Key: "method", Value: attribute.StringValue(info.FullMethod)},
+			))
+			defer span.End()
 			return handler(ctx, req)
 		})
 	}

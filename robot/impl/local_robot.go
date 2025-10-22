@@ -6,6 +6,8 @@ package robotimpl
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -13,12 +15,20 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/pkg/errors"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	otelresource "go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/multierr"
 	packagespb "go.viam.com/api/app/packages/v1"
 	goutils "go.viam.com/utils"
 	"go.viam.com/utils/rpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gopkg.in/natefinch/lumberjack.v2"
 
 	"go.viam.com/rdk/cloud"
 	"go.viam.com/rdk/components/arm"
@@ -94,6 +104,7 @@ type localRobot struct {
 	localModuleVersions map[string]semver.Version
 	startFtdcOnce       sync.Once
 	ftdc                *ftdc.FTDC
+	tracer              trace.Tracer
 
 	// whether the robot is actively reconfiguring
 	reconfiguring atomic.Bool
@@ -102,6 +113,14 @@ type localRobot struct {
 	// returned by the MachineStatus endpoint (initializing if true, running if false.)
 	// configured based on the `Initial` value of applied `config.Config`s.
 	initializing atomic.Bool
+}
+
+// MaybeStartSpan implements robot.LocalRobot.
+func (r *localRobot) MaybeStartSpan(ctx context.Context, spanName string) (context.Context, trace.Span) {
+	if r.tracer == nil {
+		return ctx, nil
+	}
+	return r.tracer.Start(ctx, spanName)
 }
 
 // ExportResourcesAsDot exports the resource graph as a DOT representation for
@@ -378,12 +397,12 @@ func newWithResources(
 		opt.apply(&rOpts)
 	}
 
+	partID := "local-config"
+	if cfg.Cloud != nil {
+		partID = cfg.Cloud.ID
+	}
 	var ftdcWorker *ftdc.FTDC
 	if rOpts.enableFTDC {
-		partID := "local-config"
-		if cfg.Cloud != nil {
-			partID = cfg.Cloud.ID
-		}
 		// CloudID is also known as the robot part id.
 		//
 		// RSDK-9369: We create a new FTDC worker, but do not yet start it. This is because the
@@ -412,6 +431,70 @@ func newWithResources(
 		}
 	}
 
+	var tracer trace.Tracer
+	// if rOpts.tracing.enabled {
+	if true {
+		func() {
+			exporter, err := otlptrace.New(
+				context.Background(),
+				otlptracehttp.NewClient(
+					otlptracehttp.WithEndpoint("localhost:4318"),
+					otlptracehttp.WithHeaders(map[string]string{
+						"content-type": "application/json",
+					}),
+					otlptracehttp.WithInsecure(),
+				),
+			)
+			if err != nil {
+				logger.Errorw("failed to create trace exporter", "err", err)
+				return
+			}
+
+			r, err := otelresource.Merge(
+				otelresource.Default(),
+				otelresource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName("rdk")),
+			)
+			if err != nil {
+				logger.Errorw("failed to create trace provider", "err", err)
+				return
+			}
+			traceProvider := sdktrace.NewTracerProvider(
+				sdktrace.WithBatcher(exporter),
+				sdktrace.WithResource(r),
+			)
+			tracer = traceProvider.Tracer("go.viam.com/rdk")
+		}()
+		func() {
+			tracesDir := filepath.Join(utils.ViamDotDir, "traces", partID)
+			if err := os.MkdirAll(tracesDir, 0o700); err != nil {
+				logger.Errorw("failed to create directory to store traces", "err", err)
+				return
+			}
+			logger.Infow("created trace storage dir", "dir", tracesDir)
+			writer := &lumberjack.Logger{
+				Filename: filepath.Join(tracesDir, "traces.json"),
+			}
+			traceExporter, err := stdouttrace.New(stdouttrace.WithWriter(writer))
+			if err != nil {
+				logger.Errorw("failed to create trace exporter", "err", err)
+				return
+			}
+			r, err := otelresource.Merge(
+				otelresource.Default(),
+				otelresource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName("rdk")),
+			)
+			if err != nil {
+				logger.Errorw("failed to create trace provider", "err", err)
+				return
+			}
+			traceProvider := sdktrace.NewTracerProvider(
+				sdktrace.WithBatcher(traceExporter),
+				sdktrace.WithResource(r),
+			)
+			tracer = traceProvider.Tracer("go.viam.com/rdk")
+		}()
+	}
+
 	closeCtx, cancel := context.WithCancel(ctx)
 	r := &localRobot{
 		manager: newResourceManager(
@@ -438,6 +521,7 @@ func newWithResources(
 		shutdownCallback:           rOpts.shutdownCallback,
 		localModuleVersions:        make(map[string]semver.Version),
 		ftdc:                       ftdcWorker,
+		tracer:                     tracer,
 	}
 
 	r.mostRecentCfg.Store(config.Config{})
@@ -482,6 +566,9 @@ func newWithResources(
 
 	// we assume these never appear in our configs and as such will not be removed from the
 	// resource graph
+	if tracer != nil {
+		rOpts.webOptions = append(rOpts.webOptions, web.WithTracer(tracer))
+	}
 	r.webSvc = web.New(r, logger, rOpts.webOptions...)
 	if r.ftdc != nil {
 		r.ftdc.Add("web", r.webSvc.RequestCounter())

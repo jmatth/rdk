@@ -49,11 +49,11 @@ var defaultTunnelConnectionTimeout = 10 * time.Second
 // a robot.Robot as a gRPC server.
 type Server struct {
 	pb.UnimplementedRobotServiceServer
-	robot robot.Robot
+	robot robot.LocalRobot
 }
 
 // New constructs a gRPC service server for a Robot.
-func New(robot robot.Robot) pb.RobotServiceServer {
+func New(robot robot.LocalRobot) pb.RobotServiceServer {
 	return &Server{
 		robot: robot,
 	}
@@ -500,6 +500,9 @@ func (s *Server) Shutdown(ctx context.Context, _ *pb.ShutdownRequest) (*pb.Shutd
 
 // GetMachineStatus returns the current status of the robot.
 func (s *Server) GetMachineStatus(ctx context.Context, _ *pb.GetMachineStatusRequest) (*pb.GetMachineStatusResponse, error) {
+	ctx, span := s.robot.MaybeStartSpan(ctx, "GetMachineStatus")
+	defer span.End()
+
 	var result pb.GetMachineStatusResponse
 
 	mStatus, err := s.robot.MachineStatus(ctx)

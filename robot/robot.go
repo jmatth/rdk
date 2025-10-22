@@ -10,6 +10,7 @@ import (
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/dynamic"
 	"github.com/pkg/errors"
+	"go.opentelemetry.io/otel/trace"
 
 	"go.viam.com/rdk/cloud"
 	"go.viam.com/rdk/config"
@@ -177,6 +178,8 @@ type LocalRobot interface {
 	// [resource.Graph.FindBySimpleNameAndAPI] for specifics about what is
 	// returned in the case of name collisions.
 	FindBySimpleNameAndAPI(string, resource.API) (resource.Resource, error)
+
+	MaybeStartSpan(ctx context.Context, spanName string) (context.Context, trace.Span)
 }
 
 // A RemoteRobot is a Robot that was created through a connection.

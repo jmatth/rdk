@@ -81,6 +81,7 @@ const (
 var (
 	errNoShellService = errors.New("shell service is not enabled on this machine part")
 	ftdcPath          = path.Join("~", ".viam", "diagnostics.data")
+	tracesPath        = path.Join("~", ".viam", "traces")
 )
 
 // viamClient wraps a cli.Context and provides all the CLI command functionality
@@ -1338,6 +1339,22 @@ func MachinesPartGetFTDCAction(c *cli.Context, args machinesPartGetFTDCArgs) err
 	return client.machinesPartGetFTDCAction(c, args, globalArgs.Debug, logger)
 }
 
+// MachinesPartGetFTDCAction is the corresponding Action for 'machines part get-ftdc'.
+func MachinesPartImportTracesAction(c *cli.Context, args machinesPartGetFTDCArgs) error {
+	client, err := newViamClient(c)
+	if err != nil {
+		return err
+	}
+
+	globalArgs, err := getGlobalArgs(c)
+	if err != nil {
+		return err
+	}
+	logger := globalArgs.createLogger()
+
+	return client.machinesPartImportTracesAction(c, args, globalArgs.Debug, logger)
+}
+
 // MachinesPartCopyFilesAction is the corresponding Action for 'machines part cp'.
 func MachinesPartCopyFilesAction(c *cli.Context, args machinesPartCopyFilesArgs) error {
 	client, err := newViamClient(c)
@@ -1514,6 +1531,55 @@ func (c *viamClient) machinesPartGetFTDCAction(
 	if !quiet {
 		printf(ctx.App.Writer, "Done in %s.", time.Since(startTime))
 	}
+	return nil
+}
+
+func (c *viamClient) machinesPartImportTracesAction(
+	ctx *cli.Context,
+	flagArgs machinesPartGetFTDCArgs,
+	debug bool,
+	logger logging.Logger,
+) error {
+	targetPath, err := os.MkdirTemp(os.TempDir(), "rdktraceimport")
+	if err != nil {
+		return err
+	}
+
+	part, err := c.robotPart(flagArgs.Organization, flagArgs.Location, flagArgs.Machine, flagArgs.Part)
+	if err != nil {
+		return err
+	}
+	// Intentional use of path instead of filepath: Windows understands both / and
+	// \ as path separators, and we don't want a cli running on Windows to send
+	// a path using \ to a *NIX machine.
+	src := path.Join(tracesPath, part.Id)
+	gArgs, err := getGlobalArgs(ctx)
+	quiet := err == nil && gArgs != nil && gArgs.Quiet
+	var startTime time.Time
+	if !quiet {
+		startTime = time.Now()
+		printf(ctx.App.Writer, "Saving to %s ...", path.Join(targetPath, part.GetId()))
+	}
+	if err := c.copyFilesFromMachine(
+		flagArgs.Organization,
+		flagArgs.Location,
+		flagArgs.Machine,
+		flagArgs.Part,
+		debug,
+		true,
+		false,
+		[]string{src},
+		targetPath,
+		logger,
+	); err != nil {
+		if statusErr := status.Convert(err); statusErr != nil &&
+			statusErr.Code() == codes.InvalidArgument &&
+			statusErr.Message() == shell.ErrMsgDirectoryCopyRequestNoRecursion {
+			return errDirectoryCopyRequestNoRecursion
+		}
+		return err
+	}
+	printf(ctx.App.Writer, "Done in %s. Files at %s", time.Since(startTime), targetPath)
 	return nil
 }
 

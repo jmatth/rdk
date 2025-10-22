@@ -22,8 +22,15 @@ type options struct {
 	// whether or not to run FTDC
 	enableFTDC bool
 
+	// optional config for capturing + exporting opentelemetry traces
+	tracing traceConfig
+
 	// disableCompleteConfigWorker starts the robot without the complete config worker - should only be used for tests.
 	disableCompleteConfigWorker bool
+}
+
+type traceConfig struct {
+	enabled bool
 }
 
 // Option configures how we set up the web service.
