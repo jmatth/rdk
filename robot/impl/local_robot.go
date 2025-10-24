@@ -16,8 +16,6 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	otelresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
@@ -28,7 +26,6 @@ import (
 	"go.viam.com/utils/rpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"gopkg.in/natefinch/lumberjack.v2"
 
 	"go.viam.com/rdk/cloud"
 	"go.viam.com/rdk/components/arm"
@@ -39,6 +36,7 @@ import (
 	"go.viam.com/rdk/ftdc"
 	"go.viam.com/rdk/ftdc/sys"
 	icloud "go.viam.com/rdk/internal/cloud"
+	"go.viam.com/rdk/internal/oltpfile"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/operation"
 	"go.viam.com/rdk/pointcloud"
@@ -435,15 +433,27 @@ func newWithResources(
 	// if rOpts.tracing.enabled {
 	if true {
 		func() {
+			tracesDir := filepath.Join(utils.ViamDotDir, "traces", partID)
+			if err := os.MkdirAll(tracesDir, 0o700); err != nil {
+				logger.Errorw("failed to create directory to store traces", "err", err)
+				return
+			}
+			logger.Infow("created trace storage dir", "dir", tracesDir)
+			client, err := oltpfile.NewClient(tracesDir)
+			if err != nil {
+				logger.Errorw("failed to create OLTP client", "err", err)
+				return
+			}
+			// client := otlptracehttp.NewClient(
+			// 	otlptracehttp.WithEndpoint("localhost:4318"),
+			// 	otlptracehttp.WithHeaders(map[string]string{
+			// 		"content-type": "application/json",
+			// 	}),
+			// 	otlptracehttp.WithInsecure(),
+			// )
 			exporter, err := otlptrace.New(
 				context.Background(),
-				otlptracehttp.NewClient(
-					otlptracehttp.WithEndpoint("localhost:4318"),
-					otlptracehttp.WithHeaders(map[string]string{
-						"content-type": "application/json",
-					}),
-					otlptracehttp.WithInsecure(),
-				),
+				client,
 			)
 			if err != nil {
 				logger.Errorw("failed to create trace exporter", "err", err)
@@ -464,35 +474,35 @@ func newWithResources(
 			)
 			tracer = traceProvider.Tracer("go.viam.com/rdk")
 		}()
-		func() {
-			tracesDir := filepath.Join(utils.ViamDotDir, "traces", partID)
-			if err := os.MkdirAll(tracesDir, 0o700); err != nil {
-				logger.Errorw("failed to create directory to store traces", "err", err)
-				return
-			}
-			logger.Infow("created trace storage dir", "dir", tracesDir)
-			writer := &lumberjack.Logger{
-				Filename: filepath.Join(tracesDir, "traces.json"),
-			}
-			traceExporter, err := stdouttrace.New(stdouttrace.WithWriter(writer))
-			if err != nil {
-				logger.Errorw("failed to create trace exporter", "err", err)
-				return
-			}
-			r, err := otelresource.Merge(
-				otelresource.Default(),
-				otelresource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName("rdk")),
-			)
-			if err != nil {
-				logger.Errorw("failed to create trace provider", "err", err)
-				return
-			}
-			traceProvider := sdktrace.NewTracerProvider(
-				sdktrace.WithBatcher(traceExporter),
-				sdktrace.WithResource(r),
-			)
-			tracer = traceProvider.Tracer("go.viam.com/rdk")
-		}()
+		// func() {
+		// 	tracesDir := filepath.Join(utils.ViamDotDir, "traces", partID)
+		// 	if err := os.MkdirAll(tracesDir, 0o700); err != nil {
+		// 		logger.Errorw("failed to create directory to store traces", "err", err)
+		// 		return
+		// 	}
+		// 	logger.Infow("created trace storage dir", "dir", tracesDir)
+		// 	writer := &lumberjack.Logger{
+		// 		Filename: filepath.Join(tracesDir, "traces.json"),
+		// 	}
+		// 	traceExporter, err := stdouttrace.New(stdouttrace.WithWriter(writer))
+		// 	if err != nil {
+		// 		logger.Errorw("failed to create trace exporter", "err", err)
+		// 		return
+		// 	}
+		// 	r, err := otelresource.Merge(
+		// 		otelresource.Default(),
+		// 		otelresource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName("rdk")),
+		// 	)
+		// 	if err != nil {
+		// 		logger.Errorw("failed to create trace provider", "err", err)
+		// 		return
+		// 	}
+		// 	traceProvider := sdktrace.NewTracerProvider(
+		// 		sdktrace.WithBatcher(traceExporter),
+		// 		sdktrace.WithResource(r),
+		// 	)
+		// 	tracer = traceProvider.Tracer("go.viam.com/rdk")
+		// }()
 	}
 
 	closeCtx, cancel := context.WithCancel(ctx)

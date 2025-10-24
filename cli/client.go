@@ -3,6 +3,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -25,11 +26,14 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/fullstorydev/grpcurl"
+	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
 	"github.com/jhump/protoreflect/grpcreflect"
 	"github.com/nathan-fiscaletti/consolesize-go"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	buildpb "go.viam.com/api/app/build/v1"
@@ -47,6 +51,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	reflectpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	rconfig "go.viam.com/rdk/config"
@@ -1579,7 +1584,33 @@ func (c *viamClient) machinesPartImportTracesAction(
 		}
 		return err
 	}
+	sdktrace.AlwaysSample()
 	printf(ctx.App.Writer, "Done in %s. Files at %s", time.Since(startTime), targetPath)
+	traceFile, err := os.Open(filepath.Join(targetPath, part.GetId(), "traces.json"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			printf(ctx.App.Writer, "No traces found")
+			return nil
+		}
+		return errors.Wrap(err, "failed to open trace file")
+	}
+	defer traceFile.Close()
+	traceScanner := bufio.NewScanner(traceFile)
+	for i := 0; traceScanner.Scan() && i < 20; i++ {
+		traceTxt := traceScanner.Text()
+		var protoMessage tracepb.ResourceSpans
+		if err := protojson.Unmarshal([]byte(traceTxt), &protoMessage); err != nil {
+			panic(err)
+		}
+		protoBytes, err := proto.Marshal(&protoMessage)
+		if err != nil {
+			panic(err)
+		}
+		_, err = http.Post("http://localhost:4318", "application/json", bytes.NewReader(protoBytes))
+		if err != nil {
+			printf(ctx.App.Writer, "Error uploading trace: %v", err)
+		}
+	}
 	return nil
 }
 
