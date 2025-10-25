@@ -19,13 +19,20 @@ type DelimitedProtoWriter[T any, M interface {
 	writer io.Writer
 }
 
+// RawDelimitedProtoReader reads proto messages from an [io.Reader] containing
+// contents created by [DelimitedProtoWriter] and returns the encoded messages
+// as byte slices.
+type RawDelimitedProtoReader struct {
+	reader io.Reader
+}
+
 // DelimitedProtoReader proto messages from an [io.Reader] containing contents
 // created by [DelimitedProtoWriter].
 type DelimitedProtoReader[T any, M interface {
 	*T
 	proto.Message
 }] struct {
-	reader io.Reader
+	RawDelimitedProtoReader
 }
 
 // NewDelimitedProtoWriter creates a [DelimitedProtoWriter].
@@ -36,12 +43,17 @@ func NewDelimitedProtoWriter[T any, M interface {
 	return &DelimitedProtoWriter[T, M]{writer}
 }
 
+// NewRawDelimitedProtoReader creates a [RawDelimitedProtoReader].
+func NewRawDelimitedProtoReader(reader io.Reader) *RawDelimitedProtoReader {
+	return &RawDelimitedProtoReader{reader}
+}
+
 // NewDelimitedProtoReader creates a [DelimitedProtoReader].
 func NewDelimitedProtoReader[T any, M interface {
 	*T
 	proto.Message
 }](reader io.Reader) *DelimitedProtoReader[T, M] {
-	return &DelimitedProtoReader[T, M]{reader}
+	return &DelimitedProtoReader[T, M]{RawDelimitedProtoReader{reader}}
 }
 
 // Close will close the underlying writer if it is a [io.Closer]. Otherwise it
@@ -74,28 +86,40 @@ func (o *DelimitedProtoWriter[_, M]) Append(message M) error {
 
 // Close will close the underlying reader if it is a [io.Closer]. Otherwise it
 // is a noop.
-func (o *DelimitedProtoReader[_, _]) Close() error {
+func (o *RawDelimitedProtoReader) Close() error {
 	if closer, ok := o.reader.(io.Closer); ok {
 		return closer.Close()
 	}
 	return nil
 }
 
-// IterMessages returns an [iter.Seq] that opens the underlying file and iterates
-// over the individual messages inside.
+// IterMessages returns an [iter.Seq] that opens the underlying file and
+// iterates over the individual messages inside without marshaling them.
 func (o *DelimitedProtoReader[T, M]) IterMessages() iter.Seq[M] {
-	return func(accept func(M) bool) {
+	return func(yield func(M) bool) {
+		o.IterRawMessages()(func(messageBytes []byte) bool {
+			var message M = new(T)
+			err := proto.Unmarshal(messageBytes, message)
+			if err != nil {
+				panic(err)
+			}
+			return yield(message)
+		})
+	}
+}
+
+// IterRawMessages returns an [iter.Seq] that reads from the underlying
+// [io.Reader] and iterates over the individual messages inside.
+func (o *RawDelimitedProtoReader) IterRawMessages() iter.Seq[[]byte] {
+	return func(yield func([]byte) bool) {
 		scanner := bufio.NewScanner(o.reader)
 		scanner.Split(splitMessages)
 
 		for scanner.Scan() {
 			messageBuffer := scanner.Bytes()
-			var message M = new(T)
-			err := proto.Unmarshal(messageBuffer, message)
-			if err != nil {
-				panic(err)
-			}
-			if !accept(message) {
+			message := make([]byte, len(messageBuffer))
+			copy(message, messageBuffer)
+			if !yield(message) {
 				break
 			}
 		}

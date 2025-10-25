@@ -3,7 +3,6 @@ package cli
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -31,6 +30,7 @@ import (
 	"github.com/nathan-fiscaletti/consolesize-go"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
@@ -49,13 +49,12 @@ import (
 	"google.golang.org/grpc/metadata"
 	reflectpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	rconfig "go.viam.com/rdk/config"
 	"go.viam.com/rdk/grpc"
 	"go.viam.com/rdk/logging"
+	"go.viam.com/rdk/protoutils"
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/robot/client"
 	"go.viam.com/rdk/services/shell"
@@ -1593,27 +1592,20 @@ func (c *viamClient) machinesPartImportTracesAction(
 		}
 		return errors.Wrap(err, "failed to open trace file")
 	}
+	traceReader := protoutils.NewDelimitedProtoReader[tracepb.ResourceSpans](traceFile)
 	//nolint: errcheck
-	defer traceFile.Close()
-	traceScanner := bufio.NewScanner(traceFile)
-	for i := 0; traceScanner.Scan() && i < 20; i++ {
-		traceTxt := traceScanner.Text()
-		var protoMessage tracepb.ResourceSpans
-		if err := protojson.Unmarshal([]byte(traceTxt), &protoMessage); err != nil {
-			panic(err)
-		}
-		protoBytes, err := proto.Marshal(&protoMessage)
-		if err != nil {
-			panic(err)
-		}
-		req, err := http.NewRequestWithContext(ctx.Context, "http://localhost:4318", http.MethodPost, bytes.NewReader(protoBytes))
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
-		//nolint: errcheck,gosec
-		resp.Body.Close()
+	defer traceReader.Close()
+	otlpClient := otlptracegrpc.NewClient(
+		otlptracegrpc.WithEndpoint("localhost:4317"),
+		otlptracegrpc.WithInsecure(),
+	)
+	if err := otlpClient.Start(ctx.Context); err != nil {
+		return err
+	}
+	//nolint: errcheck
+	defer otlpClient.Stop(ctx.Context)
+	for trace := range traceReader.IterMessages() {
+		err := otlpClient.UploadTraces(ctx.Context, []*tracepb.ResourceSpans{trace})
 		if err != nil {
 			printf(ctx.App.Writer, "Error uploading trace: %v", err)
 		}
