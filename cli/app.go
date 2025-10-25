@@ -2439,8 +2439,8 @@ Note: There is no progress meter while copying is in progress.
 							Action: createCommandWithT(MachinesPartGetFTDCAction),
 						},
 						{
-							Name:  "import-traces",
-							Usage: "download and replay trace data froma a part",
+							Name:        "import-traces",
+							Usage:       "download and replay trace data froma a part",
 							Description: `TODO: write this`,
 							UsageText: createUsageText(
 								"machines part import-traces",

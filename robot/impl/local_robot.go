@@ -36,7 +36,7 @@ import (
 	"go.viam.com/rdk/ftdc"
 	"go.viam.com/rdk/ftdc/sys"
 	icloud "go.viam.com/rdk/internal/cloud"
-	"go.viam.com/rdk/internal/oltpfile"
+	"go.viam.com/rdk/internal/otlpfile"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/operation"
 	"go.viam.com/rdk/pointcloud"
@@ -430,8 +430,7 @@ func newWithResources(
 	}
 
 	var tracer trace.Tracer
-	// if rOpts.tracing.enabled {
-	if true {
+	if rOpts.tracing.enabled || true {
 		func() {
 			tracesDir := filepath.Join(utils.ViamDotDir, "traces", partID)
 			if err := os.MkdirAll(tracesDir, 0o700); err != nil {
@@ -439,7 +438,7 @@ func newWithResources(
 				return
 			}
 			logger.Infow("created trace storage dir", "dir", tracesDir)
-			client, err := oltpfile.NewClient(tracesDir)
+			client, err := otlpfile.NewClient(tracesDir)
 			if err != nil {
 				logger.Errorw("failed to create OLTP client", "err", err)
 				return

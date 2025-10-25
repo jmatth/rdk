@@ -6,10 +6,11 @@ import (
 	"slices"
 	"testing"
 
-	"go.viam.com/rdk/protoutils"
 	"go.viam.com/test"
 	webrtcpb "go.viam.com/utils/proto/rpc/webrtc/v1"
 	"google.golang.org/protobuf/proto"
+
+	"go.viam.com/rdk/protoutils"
 )
 
 func TestDelimitedProtoWriter(t *testing.T) {
@@ -47,7 +48,7 @@ func TestDelimitedProtoReader(t *testing.T) {
 		err := delimetedProtos.Append(req)
 		test.That(t, err, test.ShouldBeNil)
 	}
-	
+
 	protosReader := protoutils.NewDelimitedProtoReader[webrtcpb.CallRequest](buffer)
 	roundTrippedMessages := slices.Collect(protosReader.IterMessages())
 	// Using test.ShouldResemble here causes the test to hang until it times out.

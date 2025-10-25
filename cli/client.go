@@ -26,13 +26,11 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/fullstorydev/grpcurl"
-	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
 	"github.com/jhump/protoreflect/grpcreflect"
 	"github.com/nathan-fiscaletti/consolesize-go"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
@@ -52,6 +50,7 @@ import (
 	reflectpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	rconfig "go.viam.com/rdk/config"
@@ -1344,7 +1343,7 @@ func MachinesPartGetFTDCAction(c *cli.Context, args machinesPartGetFTDCArgs) err
 	return client.machinesPartGetFTDCAction(c, args, globalArgs.Debug, logger)
 }
 
-// MachinesPartGetFTDCAction is the corresponding Action for 'machines part get-ftdc'.
+// MachinesPartImportTracesAction is the corresponding Action for 'machines part import-traces'.
 func MachinesPartImportTracesAction(c *cli.Context, args machinesPartGetFTDCArgs) error {
 	client, err := newViamClient(c)
 	if err != nil {
@@ -1584,8 +1583,8 @@ func (c *viamClient) machinesPartImportTracesAction(
 		}
 		return err
 	}
-	sdktrace.AlwaysSample()
 	printf(ctx.App.Writer, "Done in %s. Files at %s", time.Since(startTime), targetPath)
+	//nolint: gosec
 	traceFile, err := os.Open(filepath.Join(targetPath, part.GetId(), "traces.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -1594,6 +1593,7 @@ func (c *viamClient) machinesPartImportTracesAction(
 		}
 		return errors.Wrap(err, "failed to open trace file")
 	}
+	//nolint: errcheck
 	defer traceFile.Close()
 	traceScanner := bufio.NewScanner(traceFile)
 	for i := 0; traceScanner.Scan() && i < 20; i++ {
@@ -1606,7 +1606,14 @@ func (c *viamClient) machinesPartImportTracesAction(
 		if err != nil {
 			panic(err)
 		}
-		_, err = http.Post("http://localhost:4318", "application/json", bytes.NewReader(protoBytes))
+		req, err := http.NewRequestWithContext(ctx.Context, "http://localhost:4318", http.MethodPost, bytes.NewReader(protoBytes))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		//nolint: errcheck,gosec
+		resp.Body.Close()
 		if err != nil {
 			printf(ctx.App.Writer, "Error uploading trace: %v", err)
 		}

@@ -19,7 +19,7 @@ type DelimitedProtoWriter[T any, M interface {
 	writer io.Writer
 }
 
-// DelimitedProtoReads proto messages from an [io.Reader] containing contents
+// DelimitedProtoReader proto messages from an [io.Reader] containing contents
 // created by [DelimitedProtoWriter].
 type DelimitedProtoReader[T any, M interface {
 	*T
@@ -28,6 +28,7 @@ type DelimitedProtoReader[T any, M interface {
 	reader io.Reader
 }
 
+// NewDelimitedProtoWriter creates a [DelimitedProtoWriter].
 func NewDelimitedProtoWriter[T any, M interface {
 	*T
 	proto.Message
@@ -35,6 +36,7 @@ func NewDelimitedProtoWriter[T any, M interface {
 	return &DelimitedProtoWriter[T, M]{writer}
 }
 
+// NewDelimitedProtoReader creates a [DelimitedProtoReader].
 func NewDelimitedProtoReader[T any, M interface {
 	*T
 	proto.Message
@@ -42,6 +44,8 @@ func NewDelimitedProtoReader[T any, M interface {
 	return &DelimitedProtoReader[T, M]{reader}
 }
 
+// Close will close the underlying writer if it is a [io.Closer]. Otherwise it
+// is a noop.
 func (o *DelimitedProtoWriter[_, _]) Close() error {
 	if closer, ok := o.writer.(io.Closer); ok {
 		return closer.Close()
@@ -49,6 +53,8 @@ func (o *DelimitedProtoWriter[_, _]) Close() error {
 	return nil
 }
 
+// Append marshals the provided message and writes it to the underlying
+// [io.Writer].
 func (o *DelimitedProtoWriter[_, M]) Append(message M) error {
 	messageBytes, err := proto.Marshal(message)
 	if err != nil {
@@ -66,6 +72,8 @@ func (o *DelimitedProtoWriter[_, M]) Append(message M) error {
 	return nil
 }
 
+// Close will close the underlying reader if it is a [io.Closer]. Otherwise it
+// is a noop.
 func (o *DelimitedProtoReader[_, _]) Close() error {
 	if closer, ok := o.reader.(io.Closer); ok {
 		return closer.Close()
