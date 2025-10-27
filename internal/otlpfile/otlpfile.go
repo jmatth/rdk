@@ -21,6 +21,17 @@ type Client struct {
 	writer *protoutils.DelimitedProtoWriter[v1.ResourceSpans, *v1.ResourceSpans]
 }
 
+func NewExporterForPath(path string) (*otlptrace.Exporter, error) {
+	client, err := NewClient(path)
+	if err != nil {
+		return nil, err
+	}
+	return otlptrace.New(
+		context.Background(),
+		client,
+	)
+}
+
 // NewClient creates a new [Client].
 func NewClient(dirPath string) (*Client, error) {
 	logger := &lumberjack.Logger{

@@ -5,9 +5,9 @@ import (
 	// "math".
 	"time"
 
-	// "go.viam.com/rdk/motionplan".
-	"go.opencensus.io/trace"
+	"go.viam.com/utils/trace"
 
+	// "go.viam.com/rdk/motionplan".
 	"go.viam.com/rdk/referenceframe"
 )
 

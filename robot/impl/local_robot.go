@@ -16,14 +16,12 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
-	otelresource "go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/multierr"
 	packagespb "go.viam.com/api/app/packages/v1"
 	goutils "go.viam.com/utils"
 	"go.viam.com/utils/rpc"
+	rdktrace "go.viam.com/utils/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -459,19 +457,11 @@ func newWithResources(
 				return
 			}
 
-			r, err := otelresource.Merge(
-				otelresource.Default(),
-				otelresource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName("rdk")),
-			)
 			if err != nil {
 				logger.Errorw("failed to create trace provider", "err", err)
 				return
 			}
-			traceProvider := sdktrace.NewTracerProvider(
-				sdktrace.WithBatcher(exporter),
-				sdktrace.WithResource(r),
-			)
-			tracer = traceProvider.Tracer("go.viam.com/rdk")
+			rdktrace.SetTracerWithExporter(exporter)
 		}()
 		// func() {
 		// 	tracesDir := filepath.Join(utils.ViamDotDir, "traces", partID)

@@ -20,7 +20,9 @@ import (
 	viz "github.com/viam-labs/motion-tools/client/client"
 	"go.viam.com/utils"
 	"go.viam.com/utils/perf"
+	"go.viam.com/utils/trace"
 
+	"go.viam.com/rdk/internal/otlpfile"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/motionplan"
 	"go.viam.com/rdk/motionplan/armplanning"
@@ -91,13 +93,27 @@ func realMain() error {
 	mylog := log.New(os.Stdout, "", 0)
 	start := time.Now()
 
-	exporter := perf.NewDevelopmentExporter()
-	if err := exporter.Start(); err != nil {
-		return err
+	tracedir := os.Getenv("OTLPTRACEDIR")
+	var stopExporter func()
+	if tracedir != "" {
+		exporter, err := otlpfile.NewExporterForPath(tracedir)
+		if err != nil {
+			panic(err)
+		}
+		trace.SetTracerWithExporter(exporter)
+		stopExporter = func() {
+			trace.Shutdown(context.Background())
+		}
+	} else {
+		exporter := perf.NewDevelopmentExporter()
+		if err := exporter.Start(); err != nil {
+			return err
+		}
+		stopExporter = exporter.Stop
 	}
 
 	plan, _, err := armplanning.PlanMotion(ctx, logger, req)
-	exporter.Stop()
+	stopExporter()
 	if *interactive {
 		if interactiveErr := doInteractive(req, plan, err, mylog); interactiveErr != nil {
 			logger.Fatal("Interactive mode failed:", interactiveErr)

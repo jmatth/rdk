@@ -9,9 +9,9 @@ import (
 	"github.com/pion/mediadevices/pkg/driver"
 	"github.com/pion/mediadevices/pkg/prop"
 	"github.com/pkg/errors"
-	"go.opencensus.io/trace"
 	"go.uber.org/multierr"
 	"go.viam.com/utils"
+	"go.viam.com/utils/trace"
 )
 
 type (
