@@ -1326,6 +1326,10 @@ type machinesPartGetFTDCArgs struct {
 	Part         string
 }
 
+type importTracesFileArgs struct {
+	Path string
+}
+
 // MachinesPartGetFTDCAction is the corresponding Action for 'machines part get-ftdc'.
 func MachinesPartGetFTDCAction(c *cli.Context, args machinesPartGetFTDCArgs) error {
 	client, err := newViamClient(c)
@@ -1356,6 +1360,16 @@ func MachinesPartImportTracesAction(c *cli.Context, args machinesPartGetFTDCArgs
 	logger := globalArgs.createLogger()
 
 	return client.machinesPartImportTracesAction(c, args, globalArgs.Debug, logger)
+}
+
+// ImportTraceFileAction is the corresponding action for 'import-traces'.
+func ImportTraceFileAction(c *cli.Context, args importTracesFileArgs) error {
+	client, err := newViamClient(c)
+	if err != nil {
+		return err
+	}
+
+	return client.importTraceFileAction(c, args)
 }
 
 // MachinesPartCopyFilesAction is the corresponding Action for 'machines part cp'.
@@ -1583,8 +1597,16 @@ func (c *viamClient) machinesPartImportTracesAction(
 		return err
 	}
 	printf(ctx.App.Writer, "Done in %s. Files at %s", time.Since(startTime), targetPath)
+	traceFilePath := filepath.Join(targetPath, part.GetId(), "traces.json")
+	return c.importTraceFileAction(ctx, importTracesFileArgs{Path: traceFilePath})
+}
+
+func (c *viamClient) importTraceFileAction(
+	ctx *cli.Context,
+	args importTracesFileArgs,
+) error {
 	//nolint: gosec
-	traceFile, err := os.Open(filepath.Join(targetPath, part.GetId(), "traces.json"))
+	traceFile, err := os.Open(args.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			printf(ctx.App.Writer, "No traces found")

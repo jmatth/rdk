@@ -452,6 +452,24 @@ var app = &cli.App{
 	},
 	Commands: []*cli.Command{
 		{
+			Name:        "import-traces",
+			Usage:       "replay OTLP traces from a file",
+			Description: `TODO: write this`,
+			Args:        true,
+			UsageText: createUsageText(
+				"import-traces",
+				[]string{},
+				true, false,
+				"--path [path]"),
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:     "path",
+					Required: true,
+				},
+			},
+			Action: createCommandWithT(ImportTraceFileAction),
+		},
+		{
 			Name: "login",
 			// NOTE(benjirewis): maintain `auth` as an alias for backward compatibility.
 			Aliases:         []string{"auth"},
