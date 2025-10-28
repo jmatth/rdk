@@ -21,13 +21,16 @@ type DelimitedProtoWriter[T any, M interface {
 
 // RawDelimitedProtoReader reads proto messages from an [io.Reader] containing
 // contents created by [DelimitedProtoWriter] and returns the encoded messages
-// as byte slices.
+// as byte slices. To automatically unmarshal the messages during the iteration
+// use a [DelimitedProtoReader].
 type RawDelimitedProtoReader struct {
 	reader io.Reader
 }
 
-// DelimitedProtoReader proto messages from an [io.Reader] containing contents
-// created by [DelimitedProtoWriter].
+// DelimitedProtoReader iterates over proto messages from an [io.Reader] with
+// contents created by [DelimitedProtoWriter]. It automatically unmarshals the
+// messages at each step of the iteration. To iterate over the raw bytes use
+// [RawDelimitedProtoReader].
 type DelimitedProtoReader[T any, M interface {
 	*T
 	proto.Message
