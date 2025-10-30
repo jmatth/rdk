@@ -18,7 +18,7 @@ import (
 // Client is a type satisfies [otlptrace.Client] but writes to disk instead of
 // the network.
 type Client struct {
-	mu sync.Mutex
+	mu     sync.Mutex
 	logger *lumberjack.Logger
 	writer *protoutils.DelimitedProtoWriter[v1.ResourceSpans, *v1.ResourceSpans]
 }

@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/propagation"
+	otelresource "go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.uber.org/multierr"
 	pb "go.viam.com/api/module/v1"
@@ -34,9 +35,7 @@ import (
 	"google.golang.org/grpc"
 	reflectpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 
-	otelresource "go.opentelemetry.io/otel/sdk/resource"
 	"go.viam.com/rdk/components/camera/rtppassthrough"
-
 	// Register component APIs.
 	_ "go.viam.com/rdk/components/register_apis"
 	"go.viam.com/rdk/config"
@@ -50,7 +49,6 @@ import (
 	"go.viam.com/rdk/robot/client"
 	"go.viam.com/rdk/robot/framesystem"
 	"go.viam.com/rdk/services/discovery"
-
 	// Register service APIs.
 	_ "go.viam.com/rdk/services/register_apis"
 	rutils "go.viam.com/rdk/utils"

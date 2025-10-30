@@ -103,11 +103,11 @@ func realMain() error {
 			panic(err)
 		}
 		trace.SetTracerWithExporter(exporter,
-				resource.NewWithAttributes(
-					semconv.SchemaURL,
-					semconv.ServiceName("cmd-plan"),
-				),
-			)
+			resource.NewWithAttributes(
+				semconv.SchemaURL,
+				semconv.ServiceName("cmd-plan"),
+			),
+		)
 		stopExporter = func() {
 			//nolint: errcheck,gosec
 			trace.Shutdown(context.Background())
