@@ -8,7 +8,6 @@ import (
 
 // options configures a web service.
 type options struct {
-	baseOptions
 	// streamConfig is used to enable audio/video streaming over WebRTC.
 	streamConfig *gostream.StreamConfig
 }

@@ -1605,7 +1605,6 @@ func (c *viamClient) importTraceFileAction(
 	ctx *cli.Context,
 	args importTracesFileArgs,
 ) error {
-	//nolint: gosec
 	traceFile, err := os.Open(args.Path)
 	if err != nil {
 		if os.IsNotExist(err) {

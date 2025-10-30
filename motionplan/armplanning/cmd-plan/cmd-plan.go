@@ -18,6 +18,8 @@ import (
 	"time"
 
 	viz "github.com/viam-labs/motion-tools/client/client"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.viam.com/utils"
 	"go.viam.com/utils/perf"
 	"go.viam.com/utils/trace"
@@ -100,8 +102,14 @@ func realMain() error {
 		if err != nil {
 			panic(err)
 		}
-		trace.SetTracerWithExporter(exporter)
+		trace.SetTracerWithExporter(exporter,
+				resource.NewWithAttributes(
+					semconv.SchemaURL,
+					semconv.ServiceName("cmd-plan"),
+				),
+			)
 		stopExporter = func() {
+			//nolint: errcheck,gosec
 			trace.Shutdown(context.Background())
 		}
 	} else {

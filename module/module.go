@@ -18,6 +18,11 @@ import (
 	"github.com/pion/rtp"
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/webrtc/v3"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.uber.org/multierr"
 	pb "go.viam.com/api/module/v1"
 	robotpb "go.viam.com/api/robot/v1"
@@ -29,7 +34,9 @@ import (
 	"google.golang.org/grpc"
 	reflectpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 
+	otelresource "go.opentelemetry.io/otel/sdk/resource"
 	"go.viam.com/rdk/components/camera/rtppassthrough"
+
 	// Register component APIs.
 	_ "go.viam.com/rdk/components/register_apis"
 	"go.viam.com/rdk/config"
@@ -43,6 +50,7 @@ import (
 	"go.viam.com/rdk/robot/client"
 	"go.viam.com/rdk/robot/framesystem"
 	"go.viam.com/rdk/services/discovery"
+
 	// Register service APIs.
 	_ "go.viam.com/rdk/services/register_apis"
 	rutils "go.viam.com/rdk/utils"
@@ -244,12 +252,30 @@ func NewModule(ctx context.Context, address string, logger logging.Logger) (*Mod
 		operations:            opMgr,
 		streamSourceByName:    map[resource.Name]rtppassthrough.Source{},
 		activeResourceStreams: map[resource.Name]peerResourceState{},
-		server:                NewServer(opts...),
 		ready:                 true,
 		handlers:              HandlerMap{},
 		collections:           map[resource.API]resource.APIResourceCollection[resource.Resource]{},
 		resLoggers:            map[resource.Resource]logging.Logger{},
 	}
+	otlpClient := &moduleOtelExporter{mod: m}
+	otelExporter, err := otlptrace.New(ctx, otlpClient)
+	if err != nil {
+		return nil, err
+	}
+	trace.SetTracerWithExporter(otelExporter, otelresource.NewWithAttributes(
+		semconv.SchemaURL,
+		attribute.String("viam.module.name", modName),
+		semconv.ServiceName(modName),
+		semconv.ServiceNamespace("viam.com"),
+		semconv.ServerAddress(address),
+	))
+	otelHandler := otelgrpc.NewServerHandler(
+		otelgrpc.WithTracerProvider(trace.GetProvider()),
+		otelgrpc.WithPropagators(propagation.TraceContext{}),
+	)
+	grpcHandler := grpc.StatsHandler(otelHandler)
+	opts = append(opts, grpcHandler)
+	m.server = NewServer(opts...)
 	if err := m.server.RegisterServiceServer(ctx, &pb.ModuleService_ServiceDesc, m); err != nil {
 		return nil, err
 	}

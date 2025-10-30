@@ -63,6 +63,14 @@ func New(robot robot.LocalRobot) pb.RobotServiceServer {
 func (s *Server) Close() {
 }
 
+// SendTraces sends OTLP spans to be recorded by viam server. It should only be
+// called from modules.
+func (s *Server) SendTraces(ctx context.Context, req *pb.SendTracesRequest) (*pb.SendTracesResponse, error) {
+	traceMessages := req.Otelv1
+	return nil, s.robot.WriteTraceMessages(ctx, traceMessages)
+	// return nil, status.Errorf(codes.Unimplemented, "method SendTraces not implemented")
+}
+
 // Tunnel tunnels traffic to/from the client from/to a specified port on the server.
 func (s *Server) Tunnel(srv pb.RobotService_TunnelServer) error {
 	req, err := srv.Recv()
@@ -500,9 +508,6 @@ func (s *Server) Shutdown(ctx context.Context, _ *pb.ShutdownRequest) (*pb.Shutd
 
 // GetMachineStatus returns the current status of the robot.
 func (s *Server) GetMachineStatus(ctx context.Context, _ *pb.GetMachineStatusRequest) (*pb.GetMachineStatusResponse, error) {
-	ctx, span := s.robot.MaybeStartSpan(ctx, "GetMachineStatus")
-	defer span.End()
-
 	var result pb.GetMachineStatusResponse
 
 	mStatus, err := s.robot.MachineStatus(ctx)

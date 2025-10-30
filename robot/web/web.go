@@ -22,15 +22,15 @@ import (
 	"github.com/jhump/protoreflect/dynamic"
 	"github.com/pkg/errors"
 	"github.com/rs/cors"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	otelattribute "go.opentelemetry.io/otel/attribute"
 	"go.uber.org/multierr"
 	pb "go.viam.com/api/robot/v1"
 	"go.viam.com/utils"
 	echopb "go.viam.com/utils/proto/rpc/examples/echo/v1"
 	"go.viam.com/utils/rpc"
 	echoserver "go.viam.com/utils/rpc/examples/echo/server"
-	octrace "go.viam.com/utils/trace"
+	"go.viam.com/utils/trace"
 	"goji.io"
 	"goji.io/pat"
 	googlegrpc "google.golang.org/grpc"
@@ -123,7 +123,6 @@ type webService struct {
 
 	requestCounter     RequestCounter
 	modPeerConnTracker *grpc.ModPeerConnTracker
-	tracer             trace.Tracer
 }
 
 // New returns a new web service for the given robot.
@@ -141,7 +140,6 @@ func New(r robot.LocalRobot, logger logging.Logger, opts ...Option) Service {
 		modPeerConnTracker: grpc.NewModPeerConnTracker(),
 		opts:               wOpts,
 		requestCounter:     RequestCounter{logger: logger},
-		tracer:             wOpts.tracer,
 	}
 	webSvc.requestCounter.ensureLimit()
 	return webSvc
@@ -582,35 +580,21 @@ func (svc *webService) initRPCOptions(listenerTCPAddr *net.TCPAddr, options webo
 	unaryInterceptors = append(unaryInterceptors, svc.requestCounter.UnaryInterceptor)
 	streamInterceptors = append(streamInterceptors, svc.requestCounter.StreamInterceptor)
 
-	if options.Debug {
-		rpcOpts = append(rpcOpts, rpc.WithDebug())
-		unaryInterceptors = append(unaryInterceptors, func(
-			ctx context.Context,
-			req interface{},
-			info *googlegrpc.UnaryServerInfo,
-			handler googlegrpc.UnaryHandler,
-		) (interface{}, error) {
-			ctx, span := octrace.StartSpan(ctx, fmt.Sprintf("%v", req))
-			defer span.End()
-
-			return handler(ctx, req)
-		})
-	}
-
-	if svc.tracer != nil {
-		unaryInterceptors = append(unaryInterceptors, func(
-			ctx context.Context,
-			req interface{},
-			info *googlegrpc.UnaryServerInfo,
-			handler googlegrpc.UnaryHandler,
-		) (interface{}, error) {
-			ctx, span := svc.tracer.Start(ctx, "grpcUnaryCall", trace.WithAttributes(
-				attribute.KeyValue{Key: "method", Value: attribute.StringValue(info.FullMethod)},
-			))
-			defer span.End()
-			return handler(ctx, req)
-		})
-	}
+	// if options.Debug {
+	// 	rpcOpts = append(rpcOpts, rpc.WithDebug())
+	// unaryInterceptors = append(unaryInterceptors, func(
+	// 	ctx context.Context,
+	// 	req interface{},
+	// 	info *googlegrpc.UnaryServerInfo,
+	// 	handler googlegrpc.UnaryHandler,
+	// ) (interface{}, error) {
+	// 	ctx, span := trace.StartSpan(ctx, "go.viam.com/rdk/web/grpcUnaryCall", oteltrace.WithAttributes(
+	// 		attribute.KeyValue{Key: "grpcMethod", Value: attribute.StringValue(info.FullMethod)},
+	// 	))
+	// 	defer span.End()
+	// 	return handler(ctx, req)
+	// })
+	// }
 
 	if options.Network.TLSConfig != nil {
 		rpcOpts = append(rpcOpts, rpc.WithInternalTLSConfig(options.Network.TLSConfig))
@@ -646,6 +630,12 @@ func (svc *webService) initRPCOptions(listenerTCPAddr *net.TCPAddr, options webo
 		rpc.WithUnaryServerInterceptor(unaryInterceptor),
 		rpc.WithStreamServerInterceptor(streamInterceptor),
 	)
+
+	rpcOpts = append(rpcOpts, rpc.WithStatsHandler(otelgrpc.NewServerHandler(
+		otelgrpc.WithTracerProvider(trace.GetProvider()),
+		otelgrpc.WithSpanAttributes(otelattribute.String("robot", "ROBOT NAME HERE")),
+	),
+	))
 
 	return rpcOpts, nil
 }

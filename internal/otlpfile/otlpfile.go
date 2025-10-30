@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	v1 "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -17,10 +18,13 @@ import (
 // Client is a type satisfies [otlptrace.Client] but writes to disk instead of
 // the network.
 type Client struct {
+	mu sync.Mutex
 	logger *lumberjack.Logger
 	writer *protoutils.DelimitedProtoWriter[v1.ResourceSpans, *v1.ResourceSpans]
 }
 
+// NewExporterForPath will create an [*otlptrace.Exporter] that writes traces
+// to files in the specified directory as encoded proto messages.
 func NewExporterForPath(path string) (*otlptrace.Exporter, error) {
 	client, err := NewClient(path)
 	if err != nil {
@@ -57,6 +61,8 @@ func (c *Client) Stop(ctx context.Context) error {
 // UploadTraces implements [otlptrace.Client]. It saves the passed protoSpans
 // to disk.
 func (c *Client) UploadTraces(ctx context.Context, protoSpans []*v1.ResourceSpans) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	var errs error
 	for _, span := range protoSpans {
 		errs = errors.Join(c.writer.Append(span))

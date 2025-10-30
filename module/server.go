@@ -8,13 +8,23 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/propagation"
 	"go.viam.com/utils/rpc"
+	"go.viam.com/utils/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
 // NewServer returns a new (module specific) rpc.Server.
 func NewServer(opts ...grpc.ServerOption) rpc.Server {
+	traceProvider := trace.GetProvider()
+	otelHandler := otelgrpc.NewServerHandler(
+		otelgrpc.WithTracerProvider(traceProvider),
+		otelgrpc.WithPropagators(propagation.TraceContext{}),
+	)
+	grpcHandler := grpc.StatsHandler(otelHandler)
+	opts = append(opts, grpcHandler)
 	s := &Server{server: grpc.NewServer(opts...)}
 	reflection.Register(s.server)
 	return s

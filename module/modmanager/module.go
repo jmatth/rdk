@@ -14,12 +14,15 @@ import (
 
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"github.com/pkg/errors"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/propagation"
 	"go.uber.org/zap/zapcore"
 	pb "go.viam.com/api/module/v1"
 	robotpb "go.viam.com/api/robot/v1"
 	"go.viam.com/utils"
 	"go.viam.com/utils/pexec"
 	"go.viam.com/utils/rpc"
+	"go.viam.com/utils/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -66,6 +69,10 @@ func (m *module) dial() error {
 	if !rutils.TCPRegex.MatchString(addrToDial) {
 		addrToDial = "unix:" + addrToDial
 	}
+	otelStatsHandler := otelgrpc.NewClientHandler(
+		otelgrpc.WithTracerProvider(trace.GetProvider()),
+		otelgrpc.WithPropagators(propagation.TraceContext{}),
+	)
 	//nolint:staticcheck
 	conn, err := grpc.Dial(
 		addrToDial,
@@ -80,6 +87,7 @@ func (m *module) dial() error {
 			grpc_retry.StreamClientInterceptor(),
 			operation.StreamClientInterceptor,
 		),
+		grpc.WithStatsHandler(otelStatsHandler),
 	)
 	if err != nil {
 		return errors.WithMessage(err, "module startup failed")

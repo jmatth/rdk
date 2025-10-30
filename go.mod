@@ -82,12 +82,11 @@ require (
 	github.com/zhuyie/golzf v0.0.0-20161112031142-8387b0307ade
 	go-hep.org/x/hep v0.32.1
 	go.mongodb.org/mongo-driver v1.17.1
-	go.opencensus.io v0.24.0
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.63.0
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.38.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.19.0
 	go.opentelemetry.io/otel/sdk v1.38.0
-	go.opentelemetry.io/otel/trace v1.38.0
 	go.opentelemetry.io/proto/otlp v1.7.1
 	go.uber.org/atomic v1.11.0
 	go.uber.org/multierr v1.11.0
@@ -118,6 +117,8 @@ require (
 	periph.io/x/conn/v3 v3.7.0
 	periph.io/x/host/v3 v3.8.1-0.20230331112814-9f0d9f7d76db
 )
+
+replace go.viam.com/utils => ../goutils
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.2.1 // indirect
@@ -618,6 +619,7 @@ require (
 	go-simpler.org/musttag v0.12.2 // indirect
 	go-simpler.org/sloglint v0.7.2 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.2.2 // indirect
+	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/collector/component v1.36.0 // indirect
 	go.opentelemetry.io/collector/featuregate v1.36.0 // indirect
@@ -626,12 +628,12 @@ require (
 	go.opentelemetry.io/collector/semconv v0.125.0 // indirect
 	go.opentelemetry.io/contrib/bridges/otelzap v0.12.0 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.36.0 // indirect
-	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.62.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.62.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.38.0 // indirect
 	go.opentelemetry.io/otel/log v0.13.0 // indirect
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.38.0 // indirect
+	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	go.uber.org/automaxprocs v1.6.0 // indirect
 	go.uber.org/goleak v1.3.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
@@ -644,7 +646,7 @@ require (
 	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/tools/go/expect v0.1.1-deprecated // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
-	google.golang.org/api v0.239.0 // indirect
+	google.golang.org/api v0.243.0 // indirect
 	google.golang.org/genproto v0.0.0-20250728155136-f173205681a0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect

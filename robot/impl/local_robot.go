@@ -16,7 +16,8 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
-	"go.opentelemetry.io/otel/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
+	otlpv1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"go.uber.org/multierr"
 	packagespb "go.viam.com/api/app/packages/v1"
 	goutils "go.viam.com/utils"
@@ -24,7 +25,9 @@ import (
 	rdktrace "go.viam.com/utils/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
+	otelresource "go.opentelemetry.io/otel/sdk/resource"
 	"go.viam.com/rdk/cloud"
 	"go.viam.com/rdk/components/arm"
 	"go.viam.com/rdk/components/gantry"
@@ -100,7 +103,6 @@ type localRobot struct {
 	localModuleVersions map[string]semver.Version
 	startFtdcOnce       sync.Once
 	ftdc                *ftdc.FTDC
-	tracer              trace.Tracer
 
 	// whether the robot is actively reconfiguring
 	reconfiguring atomic.Bool
@@ -109,14 +111,22 @@ type localRobot struct {
 	// returned by the MachineStatus endpoint (initializing if true, running if false.)
 	// configured based on the `Initial` value of applied `config.Config`s.
 	initializing atomic.Bool
+
+	traceClient *otlpfile.Client
 }
 
-// MaybeStartSpan implements robot.LocalRobot.
-func (r *localRobot) MaybeStartSpan(ctx context.Context, spanName string) (context.Context, trace.Span) {
-	if r.tracer == nil {
-		return ctx, nil
+// WriteTraceMessages implements robot.LocalRobot.
+func (r *localRobot) WriteTraceMessages(ctx context.Context, spans [][]byte) error {
+	messages := make([]*otlpv1.ResourceSpans, 0, len(spans))
+	for _, s := range spans {
+		m := &otlpv1.ResourceSpans{}
+		err := proto.Unmarshal(s, m)
+		if err != nil {
+			continue
+		}
+		messages = append(messages, m)
 	}
-	return r.tracer.Start(ctx, spanName)
+	return r.traceClient.UploadTraces(ctx, messages)
 }
 
 // ExportResourcesAsDot exports the resource graph as a DOT representation for
@@ -427,7 +437,7 @@ func newWithResources(
 		}
 	}
 
-	var tracer trace.Tracer
+	var traceClient *otlpfile.Client
 	if rOpts.tracing.enabled || true {
 		func() {
 			tracesDir := filepath.Join(utils.ViamDotDir, "traces", partID)
@@ -436,7 +446,7 @@ func newWithResources(
 				return
 			}
 			logger.Infow("created trace storage dir", "dir", tracesDir)
-			client, err := otlpfile.NewClient(tracesDir)
+			traceClient, err = otlpfile.NewClient(tracesDir)
 			if err != nil {
 				logger.Errorw("failed to create OLTP client", "err", err)
 				return
@@ -450,18 +460,23 @@ func newWithResources(
 			// )
 			exporter, err := otlptrace.New(
 				context.Background(),
-				client,
+				traceClient,
 			)
 			if err != nil {
 				logger.Errorw("failed to create trace exporter", "err", err)
 				return
 			}
 
-			if err != nil {
-				logger.Errorw("failed to create trace provider", "err", err)
-				return
-			}
-			rdktrace.SetTracerWithExporter(exporter)
+			rdktrace.SetTracerWithExporter(
+				exporter,
+				otelresource.NewWithAttributes(
+					semconv.SchemaURL,
+					semconv.ServiceName("rdk"),
+					semconv.ServiceNamespace("viam.com"),
+					semconv.HostName(cfg.Cloud.FQDN),
+					semconv.HostID(cfg.Cloud.MachineID),
+				),
+			)
 		}()
 		// func() {
 		// 	tracesDir := filepath.Join(utils.ViamDotDir, "traces", partID)
@@ -520,7 +535,7 @@ func newWithResources(
 		shutdownCallback:           rOpts.shutdownCallback,
 		localModuleVersions:        make(map[string]semver.Version),
 		ftdc:                       ftdcWorker,
-		tracer:                     tracer,
+		traceClient:                traceClient,
 	}
 
 	r.mostRecentCfg.Store(config.Config{})
@@ -565,9 +580,6 @@ func newWithResources(
 
 	// we assume these never appear in our configs and as such will not be removed from the
 	// resource graph
-	if tracer != nil {
-		rOpts.webOptions = append(rOpts.webOptions, web.WithTracer(tracer))
-	}
 	r.webSvc = web.New(r, logger, rOpts.webOptions...)
 	if r.ftdc != nil {
 		r.ftdc.Add("web", r.webSvc.RequestCounter())

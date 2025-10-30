@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"go.viam.com/utils/rpc"
+	"go.viam.com/utils/trace"
 
 	pb "go.viam.com/rdk/examples/customresources/apis/proto/api/service/summation/v1"
 	"go.viam.com/rdk/logging"
@@ -60,6 +61,8 @@ func NewRPCServiceServer(coll resource.APIResourceGetter[Summation]) interface{}
 }
 
 func (s *serviceServer) Sum(ctx context.Context, req *pb.SumRequest) (*pb.SumResponse, error) {
+	ctx, span := trace.StartSpan(ctx, "serviceServer.Sum")
+	defer span.End()
 	g, err := s.coll.Resource(req.Name)
 	if err != nil {
 		return nil, err
