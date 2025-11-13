@@ -3,6 +3,8 @@ package operation
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -100,11 +102,7 @@ func (m *Manager) add(op *Operation) {
 func (m *Manager) All() []*Operation {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	a := make([]*Operation, 0, len(m.ops))
-	for _, o := range m.ops {
-		a = append(a, o)
-	}
-	return a
+	return slices.Collect(maps.Values(m.ops))
 }
 
 // Find an Operation.

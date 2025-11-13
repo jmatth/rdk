@@ -18,10 +18,8 @@ import (
 	"github.com/pion/rtp"
 	"github.com/pkg/errors"
 	"github.com/viamrobotics/webrtc/v3"
-	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
-	"go.opentelemetry.io/otel/propagation"
 	otelresource "go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.uber.org/multierr"
@@ -49,6 +47,7 @@ import (
 	"go.viam.com/rdk/robot/client"
 	"go.viam.com/rdk/robot/framesystem"
 	"go.viam.com/rdk/services/discovery"
+
 	// Register service APIs.
 	_ "go.viam.com/rdk/services/register_apis"
 	rutils "go.viam.com/rdk/utils"
@@ -267,12 +266,12 @@ func NewModule(ctx context.Context, address string, logger logging.Logger) (*Mod
 		semconv.ServiceNamespace("viam.com"),
 		semconv.ServerAddress(address),
 	))
-	otelHandler := otelgrpc.NewServerHandler(
-		otelgrpc.WithTracerProvider(trace.GetProvider()),
-		otelgrpc.WithPropagators(propagation.TraceContext{}),
-	)
-	grpcHandler := grpc.StatsHandler(otelHandler)
-	opts = append(opts, grpcHandler)
+	// otelHandler := otelgrpc.NewServerHandler(
+	// 	otelgrpc.WithTracerProvider(trace.GetProvider()),
+	// 	otelgrpc.WithPropagators(propagation.TraceContext{}),
+	// )
+	// grpcHandler := grpc.StatsHandler(otelHandler)
+	// opts = append(opts, grpcHandler)
 	m.server = NewServer(opts...)
 	if err := m.server.RegisterServiceServer(ctx, &pb.ModuleService_ServiceDesc, m); err != nil {
 		return nil, err

@@ -12,12 +12,14 @@ import (
 	"github.com/golang/geo/r3"
 	"github.com/lestrrat-go/jwx/jwk"
 	packagespb "go.viam.com/api/app/packages/v1"
+
 	pb "go.viam.com/api/app/v1"
 	"go.viam.com/test"
 	goutils "go.viam.com/utils"
 	"go.viam.com/utils/jwks"
 	"go.viam.com/utils/pexec"
 	"go.viam.com/utils/rpc"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"go.viam.com/rdk/logging"
@@ -1114,4 +1116,30 @@ func TestJobsConfigProtoConversions(t *testing.T) {
 	out, err = JobsConfigFromProto(proto, logger)
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, *out, test.ShouldResemble, testJobConfigCommand)
+}
+
+func TestTraceConfig(t *testing.T) {
+	tc := pb.TracingConfig{
+		Record: pb.TracingRecord_TRACING_RECORD_ALL,
+		Storage: []*pb.TracingStorage{
+			{
+				Storage: &pb.TracingStorage_Local_{
+					Local: &pb.TracingStorage_Local{
+						RotateBytes: 1024 * 8000,
+					},
+				},
+			},
+			{
+				Storage: &pb.TracingStorage_Remote_{
+					Remote: &pb.TracingStorage_Remote{
+						Endpoint: "localhost:1111",
+					},
+				},
+			},
+		},
+	}
+	
+	j, err := protojson.Marshal(&tc)
+	test.That(t, err, test.ShouldBeNil)
+	t.Logf("%v", string(j))
 }
