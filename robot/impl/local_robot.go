@@ -6,6 +6,8 @@ package robotimpl
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -13,12 +15,18 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/pkg/errors"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	otelresource "go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
+	otlpv1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"go.uber.org/multierr"
 	packagespb "go.viam.com/api/app/packages/v1"
 	goutils "go.viam.com/utils"
 	"go.viam.com/utils/rpc"
+	rdktrace "go.viam.com/utils/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"go.viam.com/rdk/cloud"
 	"go.viam.com/rdk/components/arm"
@@ -29,6 +37,7 @@ import (
 	"go.viam.com/rdk/ftdc"
 	"go.viam.com/rdk/ftdc/sys"
 	icloud "go.viam.com/rdk/internal/cloud"
+	"go.viam.com/rdk/internal/otlpfile"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/operation"
 	"go.viam.com/rdk/pointcloud"
@@ -102,6 +111,22 @@ type localRobot struct {
 	// returned by the MachineStatus endpoint (initializing if true, running if false.)
 	// configured based on the `Initial` value of applied `config.Config`s.
 	initializing atomic.Bool
+
+	traceClient *otlpfile.Client
+}
+
+// WriteTraceMessages implements robot.LocalRobot.
+func (r *localRobot) WriteTraceMessages(ctx context.Context, spans [][]byte) error {
+	messages := make([]*otlpv1.ResourceSpans, 0, len(spans))
+	for _, s := range spans {
+		m := &otlpv1.ResourceSpans{}
+		err := proto.Unmarshal(s, m)
+		if err != nil {
+			continue
+		}
+		messages = append(messages, m)
+	}
+	return r.traceClient.UploadTraces(ctx, messages)
 }
 
 // ExportResourcesAsDot exports the resource graph as a DOT representation for
@@ -378,12 +403,12 @@ func newWithResources(
 		opt.apply(&rOpts)
 	}
 
+	partID := "local-config"
+	if cfg.Cloud != nil {
+		partID = cfg.Cloud.ID
+	}
 	var ftdcWorker *ftdc.FTDC
 	if rOpts.enableFTDC {
-		partID := "local-config"
-		if cfg.Cloud != nil {
-			partID = cfg.Cloud.ID
-		}
 		// CloudID is also known as the robot part id.
 		//
 		// RSDK-9369: We create a new FTDC worker, but do not yet start it. This is because the
@@ -412,6 +437,39 @@ func newWithResources(
 		}
 	}
 
+	var traceClient *otlpfile.Client
+	if rOpts.tracing.fileEnabled {
+		func() {
+			tracesDir := filepath.Join(utils.ViamDotDir, "trace", partID)
+			if err := os.MkdirAll(tracesDir, 0o700); err != nil {
+				logger.Errorw("failed to create directory to store traces", "err", err)
+				return
+			}
+			logger.Debugw("created trace storage dir", "dir", tracesDir)
+			const traceFileName = "traces"
+			traceClient, err = otlpfile.NewClient(tracesDir, traceFileName)
+			if err != nil {
+				logger.Errorw("failed to create OLTP file client", "err", err)
+				return
+			}
+			exporter, err := otlptrace.New(ctx, traceClient)
+			if err != nil {
+				logger.Errorw("failed to create trace exporter", "err", err)
+				return
+			}
+			rdktrace.SetTracerWithExporters(
+				otelresource.NewWithAttributes(
+					semconv.SchemaURL,
+					semconv.ServiceName("rdk"),
+					semconv.ServiceNamespace("viam.com"),
+					semconv.HostName(cfg.Cloud.FQDN),
+					semconv.HostID(cfg.Cloud.MachineID),
+				),
+				exporter,
+			)
+		}()
+	}
+
 	closeCtx, cancel := context.WithCancel(ctx)
 	r := &localRobot{
 		manager: newResourceManager(
@@ -438,6 +496,7 @@ func newWithResources(
 		shutdownCallback:           rOpts.shutdownCallback,
 		localModuleVersions:        make(map[string]semver.Version),
 		ftdc:                       ftdcWorker,
+		traceClient:                traceClient,
 	}
 
 	r.mostRecentCfg.Store(config.Config{})

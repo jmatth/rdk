@@ -24,6 +24,13 @@ type options struct {
 
 	// disableCompleteConfigWorker starts the robot without the complete config worker - should only be used for tests.
 	disableCompleteConfigWorker bool
+
+	// enable and configure tracing
+	tracing traceConfig
+}
+
+type traceConfig struct {
+	fileEnabled bool
 }
 
 // Option configures how we set up the web service.
@@ -52,6 +59,13 @@ func newFuncOption(f func(*options)) *funcOption {
 func WithFTDC() Option {
 	return newFuncOption(func(o *options) {
 		o.enableFTDC = true
+	})
+}
+
+// WithTraceFile enables recording OpenTelemetry traces to disk.
+func WithTraceFile() Option {
+	return newFuncOption(func(o *options) {
+		o.tracing.fileEnabled = true
 	})
 }
 

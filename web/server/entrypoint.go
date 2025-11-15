@@ -53,7 +53,8 @@ type Arguments struct {
 	OutputTelemetry            bool   `flag:"output-telemetry,usage=print out telemetry data (metrics and spans)"`
 	DisableMulticastDNS        bool   `flag:"disable-mdns,usage=disable server discovery through multicast DNS"`
 	DumpResourcesPath          string `flag:"dump-resources,usage=dump all resource registrations as json to the provided file path"`
-	EnableFTDC                 bool   `flag:"ftdc,default=true,usage=enable fulltime data capture for diagnostics"`
+	EnableFTDC                 bool   `flag:"ftdc,default=false,usage=enable fulltime data capture for diagnostics"`
+	EnableTraceFile            bool   `flag:"trace-file,usage=enable persisting OTLP traces to a disk"`
 	OutputLogFile              string `flag:"log-file,usage=write logs to a file with log rotation"`
 	NoTLS                      bool   `flag:"no-tls,usage=starts an insecure http server without TLS certificates even if one exists"`
 	NetworkCheckOnly           bool   `flag:"network-check,usage=only runs normal network checks, logs results, and exits"`
@@ -571,6 +572,10 @@ func (s *robotServer) serveWeb(ctx context.Context, cfg *config.Config) (err err
 
 	if s.args.EnableFTDC {
 		robotOptions = append(robotOptions, robotimpl.WithFTDC())
+	}
+
+	if s.args.EnableTraceFile {
+		robotOptions = append(robotOptions, robotimpl.WithTraceFile())
 	}
 
 	// Create `minimalProcessedConfig`, a copy of `fullProcessedConfig`. Remove
