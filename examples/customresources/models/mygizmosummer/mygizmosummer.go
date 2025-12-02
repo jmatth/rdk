@@ -11,6 +11,7 @@ import (
 	"go.viam.com/rdk/examples/customresources/apis/summationapi"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/resource"
+	"go.viam.com/utils/trace"
 )
 
 // Model is the full model definition.
@@ -89,6 +90,9 @@ func (g *myActualGizmo) Reconfigure(ctx context.Context, deps resource.Dependenc
 }
 
 func (g *myActualGizmo) DoOne(ctx context.Context, arg1 string) (bool, error) {
+	ctx, span := trace.StartSpan(ctx, "Gizmo::DoOne")
+	defer span.End()
+	g.logger.Debugf("Span context: %v", span.SpanContext())
 	g.mySummerMu.Lock()
 	defer g.mySummerMu.Unlock()
 

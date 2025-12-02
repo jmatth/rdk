@@ -18,7 +18,6 @@ import (
 
 	"github.com/golang/geo/r3"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.viam.com/test"
 	"go.viam.com/utils"
 	"go.viam.com/utils/perf"
@@ -2746,6 +2745,25 @@ func TestModularResourceReconfigurationCount(t *testing.T) {
 	test.That(t, resp["num_reconfigurations"], test.ShouldEqual, 0)
 }
 
+func TestTracePropagationBetweenModules(t *testing.T) {
+	// Precompile modules to avoid timeout issues when building takes too long.
+	complexPath := rtestutils.BuildTempModule(t, "examples/customresources/demos/complexmodule")
+	testPath := rtestutils.BuildTempModule(t, "module/testmodule")
+
+	cfg := &config.Config{
+		Modules: []config.Module{
+			{
+				Name:    "complex-module",
+				ExePath: complexPath,
+			},
+			{
+				Name:    "test-module",
+				ExePath: testPath,
+			},
+		},
+	}
+}
+
 func TestImplicitDepsAcrossModules(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := logging.NewObservedTestLogger(t)
@@ -4235,7 +4253,6 @@ func TestModuleLogging(t *testing.T) {
 	// that modular resources can log at their own, configured levels.
 
 	// Set up a real trace provider + exporter so we get real trace IDs.
-	sdktrace.NewTracerProvider()
 	devExporter := perf.NewOtelDevelopmentExporter()
 	test.That(t, devExporter.Start(), test.ShouldBeNil)
 	defer devExporter.Stop()

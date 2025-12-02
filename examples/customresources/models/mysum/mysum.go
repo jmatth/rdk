@@ -9,6 +9,7 @@ import (
 	"go.viam.com/rdk/examples/customresources/apis/summationapi"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/resource"
+	"go.viam.com/utils/trace"
 )
 
 // Model is the full model definition.
@@ -36,6 +37,7 @@ type mySum struct {
 
 	mu       sync.Mutex
 	subtract bool
+	log logging.Logger
 }
 
 func newMySum(ctx context.Context,
@@ -45,6 +47,7 @@ func newMySum(ctx context.Context,
 ) (summationapi.Summation, error) {
 	summer := &mySum{
 		Named: conf.ResourceName().AsNamed(),
+		log: logger,
 	}
 	if err := summer.Reconfigure(ctx, deps, conf); err != nil {
 		return nil, err
@@ -53,6 +56,9 @@ func newMySum(ctx context.Context,
 }
 
 func (m *mySum) Sum(ctx context.Context, nums []float64) (float64, error) {
+	span := trace.FromContext(ctx)
+	sctx := span.SpanContext()
+	m.log.Debugf("Span context: %v\n", sctx)
 	if len(nums) == 0 {
 		return 0, errors.New("must provide at least one number to sum")
 	}

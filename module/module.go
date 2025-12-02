@@ -15,12 +15,12 @@ import (
 	"github.com/viamrobotics/webrtc/v3"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/trace/noop"
 	pb "go.viam.com/api/module/v1"
 	robotpb "go.viam.com/api/robot/v1"
 	streampb "go.viam.com/api/stream/v1"
 	"go.viam.com/utils"
 	"go.viam.com/utils/rpc"
+	"go.viam.com/utils/trace"
 	"google.golang.org/grpc"
 
 	"go.viam.com/rdk/components/camera/rtppassthrough"
@@ -31,6 +31,7 @@ import (
 	"go.viam.com/rdk/operation"
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/robot/client"
+
 	// Register service APIs.
 	_ "go.viam.com/rdk/services/register_apis"
 	rutils "go.viam.com/rdk/utils"
@@ -156,8 +157,9 @@ func NewModule(ctx context.Context, address string, logger logging.Logger) (*Mod
 		opMgr.StreamServerInterceptor,
 	}
 
+	provider := trace.GetProvider()
 	otelStatsHandler := otelgrpc.NewServerHandler(
-		otelgrpc.WithTracerProvider(noop.NewTracerProvider()),
+		otelgrpc.WithTracerProvider(provider),
 		otelgrpc.WithPropagators(propagation.TraceContext{}),
 	)
 
