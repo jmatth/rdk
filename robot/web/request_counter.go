@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/viamrobotics/webrtc/v3"
+	"go.opentelemetry.io/otel/attribute"
 	"go.viam.com/utils/rpc"
+	"go.viam.com/utils/trace"
 	googlegrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -380,7 +382,13 @@ func (rc *RequestCounter) UnaryInterceptor(
 		rc.setClientMetadataForPC(ctx, pc)
 	}
 
-	if resource := buildResourceLimitKey(req, apiMethod); resource != "" {
+	resourceName := apiMethod.getResourceName(req)
+	if resourceName != "" {
+		if span := trace.FromContext(ctx); span != nil {
+			span.SetAttributes(attribute.String("viam.resource.name", resourceName))
+		}
+	}
+	if resource := buildResourceLimitKey(resourceName, apiMethod); resource != "" {
 		if ok := rc.incrInFlight(resource, pc); !ok {
 			numInFlightRequestsForClient := rc.logRequestLimitExceeded(apiMethod.full, resource, pc)
 			return nil, &RequestLimitExceededError{
@@ -639,13 +647,13 @@ func buildRCKey(clientMsg any, method apiMethod) string {
 	return method.shortPath
 }
 
-func buildResourceLimitKey(clientMsg any, method apiMethod) string {
+func buildResourceLimitKey(resourceName string, method apiMethod) string {
 	if method.shortPath == "" {
-		// Ignore for nun-Viam APIs
+		// Ignore for non-Viam APIs
 		return ""
 	}
-	if name := method.getResourceName(clientMsg); name != "" {
-		return name + "." + method.service
+	if resourceName != "" {
+		return resourceName + "." + method.service
 	}
 	if method.service == "viam.robot.v1.RobotService" {
 		return method.service
