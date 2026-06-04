@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -25,9 +24,13 @@ const (
 	// MetadataContextKey is the key used to access metadata from a context with metadata.
 	MetadataContextKey = contextKey("viam-metadata")
 
-	// arbitraryMetadataKey records the metadata keys provided by the user (as opposed to those for internal use)
-	// It is automatically prefixed to all arbitrary keys behind the scenes to avoid conflicts with internal metadata.
+	// arbitraryMetadataKey is the prefix applied to all user-provided (arbitrary) metadata keys
+	// behind the scenes. Prefixing keeps arbitrary metadata from conflicting with internal metadata
+	// and makes arbitrary keys self-identifying on the wire, so no separate key index is needed.
 	arbitraryMetadataKey = string(MetadataContextKey)
+
+	// arbitraryMetadataKeyPrefix is prepended to every arbitrary key before it is sent over the wire.
+	arbitraryMetadataKeyPrefix = arbitraryMetadataKey + "-"
 
 	// TimeRequestedMetadataKey is optional metadata in the gRPC response header that correlates
 	// to the time right before the point cloud was captured.
@@ -76,9 +79,9 @@ func ContextWithMetadataServerToClientUnaryClientInterceptor(
 
 	md := ctx.Value(MetadataContextKey)
 	if mdMap, ok := md.(map[string][]string); ok {
-		for _, prefixedKeys := range header.Get(arbitraryMetadataKey) {
-			if v := header.Get(prefixedKeys); len(v) > 0 {
-				mdMap[strings.TrimPrefix(prefixedKeys, arbitraryMetadataKey+"-")] = v
+		for k, v := range header {
+			if strings.HasPrefix(k, arbitraryMetadataKeyPrefix) && len(v) > 0 {
+				mdMap[strings.TrimPrefix(k, arbitraryMetadataKeyPrefix)] = v
 			}
 		}
 	}
@@ -103,18 +106,12 @@ func ContextWithMetadataServerToClientUnaryServerInterceptor(
 	return resp, err
 }
 
-// toWireMD transforms the incoming MD to a new one where all keys are previxed with arbitraryMetadataKey-
-// and adds a new mapping of arbitraryMetadataKey: [prefixedKeys]
+// toWireMD transforms the incoming MD to a new one where all keys are prefixed with arbitraryMetadataKeyPrefix.
+// The prefix makes the keys self-identifying on the wire, so no separate key index is emitted.
 func toWireMD(md map[string][]string) metadata.MD {
 	wireMD := metadata.MD{}
-	prefixedKeys := make([]string, 0, len(md))
 	for k, v := range md {
-		wireKey := arbitraryMetadataKey + "-" + k
-		wireMD[wireKey] = v
-		prefixedKeys = append(prefixedKeys, wireKey)
-	}
-	if len(prefixedKeys) > 0 {
-		wireMD[arbitraryMetadataKey] = prefixedKeys
+		wireMD[arbitraryMetadataKeyPrefix+k] = v
 	}
 	return wireMD
 }
@@ -131,16 +128,15 @@ func ContextWithMetadataClientToServerUnaryServerInterceptor(
 		return handler(ctx, req)
 	}
 
-	// dedupe key list to prevent duplicative appends with multiple hops
-	keys := slices.Clone(md.Get(arbitraryMetadataKey))
-	slices.Sort(keys)
-	keys = slices.Compact(keys)
-
-	for _, prefixedKeys := range keys {
-		ctx = metadata.AppendToOutgoingContext(ctx, arbitraryMetadataKey, prefixedKeys)
-		for _, val := range md.Get(prefixedKeys) {
-			ctx = metadata.AppendToOutgoingContext(ctx, prefixedKeys, val)
+	for k, vals := range md {
+		if !strings.HasPrefix(k, arbitraryMetadataKeyPrefix) {
+			continue
 		}
+		pairs := make([]string, 0, len(vals)*2)
+		for _, v := range vals {
+			pairs = append(pairs, k, v)
+		}
+		ctx = metadata.AppendToOutgoingContext(ctx, pairs...)
 	}
 	return handler(ctx, req)
 }
@@ -154,24 +150,16 @@ func ContextWithTimeoutIfNoDeadline(ctx context.Context, timeout time.Duration) 
 	return context.WithCancel(ctx)
 }
 
-// AppendToOutgoingContext functions like metadata.AppendToOutgoingContext, but also tracks the unique list of arbitrary keys
-// under the arbitraryMetadataKey key.
+// AppendToOutgoingContext functions like metadata.AppendToOutgoingContext, but prefixes every key with
+// arbitraryMetadataKeyPrefix so arbitrary metadata is self-identifying on the wire and cannot collide with
+// internal metadata.
 func AppendToOutgoingContext(ctx context.Context, kv ...string) context.Context {
-	seenKeys := make(map[string]struct{})
-	arbitraryKeys := make([]string, 0, len(kv))
 	prefixedPairs := make([]string, len(kv))
 	for i := 0; i+1 < len(kv); i += 2 {
-		wireKey := arbitraryMetadataKey + "-" + kv[i]
-		prefixedPairs[i] = wireKey
+		prefixedPairs[i] = arbitraryMetadataKeyPrefix + kv[i]
 		prefixedPairs[i+1] = kv[i+1]
-		if _, dup := seenKeys[kv[i]]; dup {
-			continue
-		}
-		seenKeys[kv[i]] = struct{}{}
-		arbitraryKeys = append(arbitraryKeys, arbitraryMetadataKey, wireKey)
 	}
-	ctx = metadata.AppendToOutgoingContext(ctx, prefixedPairs...)
-	return metadata.AppendToOutgoingContext(ctx, arbitraryKeys...)
+	return metadata.AppendToOutgoingContext(ctx, prefixedPairs...)
 }
 
 // FromIncomingContext functions like metadata.FromIncomingContext but strips the prefix added by AppendToOutgoingContext.
@@ -189,28 +177,16 @@ func FromIncomingContext(ctx context.Context) (metadata.MD, bool) {
 	return md, true
 }
 
-// SetHeader functions like grpc.SetHeader, but also tracks the unique list of arbitrary keys under the arbitraryMetadataKey key
-// and prepends keys with the prefix arbitraryMetadataKey- to allow shadowing internal keys.
+// SetHeader functions like grpc.SetHeader, but prepends keys with the prefix arbitraryMetadataKeyPrefix to
+// allow shadowing internal keys and to make arbitrary keys self-identifying on the wire.
 func SetHeader(ctx context.Context, md metadata.MD) error {
-	wireMD := metadata.MD{}
-	for k, v := range md {
-		wireKey := arbitraryMetadataKey + "-" + k
-		wireMD[wireKey] = v
-		wireMD.Append(arbitraryMetadataKey, wireKey)
-	}
-	return grpc.SetHeader(ctx, wireMD)
+	return grpc.SetHeader(ctx, toWireMD(md))
 }
 
-// SendHeader functions like grpc.SendHeader, but also tracks the unique list of arbitrary keys under the arbitraryMetadataKey key
-// and prepends keys with the prefix arbitraryMetadataKey- to allow shadowing internal keys.
+// SendHeader functions like grpc.SendHeader, but prepends keys with the prefix arbitraryMetadataKeyPrefix to
+// allow shadowing internal keys and to make arbitrary keys self-identifying on the wire.
 func SendHeader(ctx context.Context, md metadata.MD) error {
-	wireMD := metadata.MD{}
-	for k, v := range md {
-		wireKey := arbitraryMetadataKey + "-" + k
-		wireMD[wireKey] = v
-		wireMD.Append(arbitraryMetadataKey, wireKey)
-	}
-	return grpc.SendHeader(ctx, wireMD)
+	return grpc.SendHeader(ctx, toWireMD(md))
 }
 
 // GetTimeoutCtx returns a context [and its cancel function] with a timeout value determined by whether an environment variable is set,
