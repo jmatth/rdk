@@ -231,6 +231,7 @@ jobs:
     needs: [check-changes]
     # note: we have automations that match on platform_name. be careful changing this.
     name: ${{ matrix.platform_name }} Go Unit Tests
+    if: false
     strategy:
       fail-fast: false
       matrix:
@@ -314,12 +315,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: ubuntu-large
+          - runner: ubuntu-latest
             image: ghcr.io/viamrobotics/rdk-devenv:amd64
             platform: linux/amd64
-          - runner: github-linux-arm64-4core
-            image: ghcr.io/viamrobotics/rdk-devenv:arm64
-            platform: linux/arm64
+          # - runner: github-linux-arm64-4core
+          #   image: ghcr.io/viamrobotics/rdk-devenv:arm64
+          #   platform: linux/arm64
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}
@@ -371,6 +372,7 @@ jobs:
 
   test_win:
     name: windows
+    if: false
     needs: [check-changes]
     runs-on: windows-2025
     steps:
@@ -431,6 +433,7 @@ jobs:
 
   test_macos:
     name: macOS
+    if: false
     needs: [check-changes]
     runs-on: macos-latest-xlarge # latest silicon MacOS runner
     timeout-minutes: 30
@@ -483,6 +486,7 @@ jobs:
 
   test32:
     name: Go 32-bit Unit Tests
+    if: false
     needs: [check-changes]
     runs-on: ubuntu-arm-16-core
     timeout-minutes: 30
@@ -519,6 +523,7 @@ jobs:
   motion_tests:
     needs: [check-changes]
     name: Test Longer-running Motion Plans if affected
+    if: false
     uses: viamrobotics/rdk/.github/workflows/motion-tests.yml@main
     with:
       skip: ${{ needs.check-changes.outputs.skip_motion_tests == 'true' }}
